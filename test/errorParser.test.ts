@@ -74,4 +74,13 @@ describe('ErrorParser Automated Tests', () => {
     assert.strictEqual(result.errorType, 'NonErrorSelection');
     assert.ok(result.parseNotice?.includes('No recognized error types'));
   });
+
+  it('7. Parses CleanFileCheck correctly with 0 errors detected and clean scope', () => {
+    const result = ErrorParser.parse('CleanFileCheck: example.py');
+
+    assert.strictEqual(result.isError, false);
+    assert.strictEqual(result.errorType, 'CleanFile');
+    assert.ok(result.message.includes('0 Errors detected in example.py'));
+    assert.strictEqual(result.frames.length, 0);
+  });
 });

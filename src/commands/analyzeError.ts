@@ -25,21 +25,41 @@ export function registerAnalyzeErrorCommand(
       selectedText = editor.document.getText(editor.selection).trim();
     }
 
-    // 2. If no editor selection, try copying from terminal selection / clipboard
+    // 2. If no editor selection, check if the terminal has a genuine active selection
     if (!selectedText) {
+      const prevClip = (await vscode.env.clipboard.readText()) || '';
+      const sentinel = `__BUGSCOPE_SENTINEL_${Date.now()}__`;
+      await vscode.env.clipboard.writeText(sentinel);
       try {
         await vscode.commands.executeCommand('workbench.action.terminal.copySelection');
       } catch {}
-
-      try {
-        const clipText = (await vscode.env.clipboard.readText())?.trim();
-        if (clipText && clipText.length > 0) {
-          selectedText = clipText;
-        }
-      } catch {}
+      const afterCopy = (await vscode.env.clipboard.readText()) || '';
+      if (afterCopy && afterCopy !== sentinel && afterCopy.trim().length > 0) {
+        selectedText = afterCopy.trim();
+      } else {
+        // Nothing was selected in terminal — restore previous clipboard
+        await vscode.env.clipboard.writeText(prevClip);
+      }
     }
 
-    // 3. If still empty, provide keyboard-friendly input prompt
+    // 3. If still empty, check active editor file diagnostics or verify clean file state (0 errors)
+    if (!selectedText && editor) {
+      const diagnostics = vscode.languages.getDiagnostics(editor.document.uri);
+      const errors = diagnostics.filter((d) => d.severity === vscode.DiagnosticSeverity.Error);
+      const relPath = vscode.workspace.asRelativePath(editor.document.uri);
+
+      if (errors.length > 0) {
+        const topErr = errors[0];
+        const line = topErr.range.start.line + 1;
+        const col = topErr.range.start.character + 1;
+        selectedText = `${topErr.source || 'Error'}: ${topErr.message}\n    at ${relPath}:${line}:${col}`;
+      } else {
+        // Active file has 0 errors!
+        selectedText = `CleanFileCheck: ${relPath}`;
+      }
+    }
+
+    // 4. If still empty and no active editor: Provide keyboard input prompt
     if (!selectedText) {
       const input = await vscode.window.showInputBox({
         title: 'BugScope AI: Analyse Error',
@@ -55,7 +75,7 @@ export function registerAnalyzeErrorCommand(
     if (!selectedText) {
       resultsProvider.setEmptyState(
         'No error text selected.',
-        'Highlight error text in your editor or terminal and press Ctrl+Alt+B, or paste it directly.'
+        'Highlight error text in your editor or terminal and press F4, or paste it directly.'
       );
       await vscode.commands.executeCommand('bugscope.resultsView.focus');
       return;

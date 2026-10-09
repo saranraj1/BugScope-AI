@@ -45,6 +45,19 @@ export class ErrorParser {
       };
     }
 
+    // Handle clean file analysis (0 errors detected)
+    if (trimmed.startsWith('CleanFileCheck:')) {
+      const fileName = trimmed.replace('CleanFileCheck:', '').trim();
+      return {
+        isError: false,
+        errorType: 'CleanFile',
+        message: `0 Errors detected in ${fileName || 'active file'}. Workspace code verified clean.`,
+        frames: [],
+        rawText: rawInput,
+        parseNotice: 'Active file verified clean — 0 runtime errors or diagnostics detected.'
+      };
+    }
+
     const lines = trimmed.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
 
     // 1. Extract frames across all known formats

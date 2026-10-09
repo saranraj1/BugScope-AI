@@ -60,6 +60,7 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
    */
   public setLoadingState(selectionText: string): void {
     this.currentState = 'loading';
+    this.currentReport = undefined; // Immediately clear previous report!
     this.lastLoadingText = selectionText;
     this.postMessage({ type: 'STATE_LOADING', selectionText });
   }
@@ -78,6 +79,7 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
    */
   public setEmptyState(message: string, hint: string): void {
     this.currentState = 'empty';
+    this.currentReport = undefined;
     this.postMessage({ type: 'STATE_EMPTY', message, hint });
   }
 
@@ -86,6 +88,7 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
    */
   public setErrorState(errorMessage: string, details?: string): void {
     this.currentState = 'error';
+    this.currentReport = undefined;
     this.lastErrorMessage = errorMessage;
     this.postMessage({ type: 'STATE_ERROR', errorMessage, details });
   }
@@ -96,6 +99,8 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
   public setIdleState(): void {
     this.currentState = 'idle';
     this.currentReport = undefined;
+    this.lastLoadingText = undefined;
+    this.lastErrorMessage = undefined;
     this.postMessage({ type: 'STATE_IDLE' });
   }
 
@@ -271,6 +276,28 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
       font-size: 12px;
       margin-top: 4px;
       word-break: break-word;
+    }
+
+    /* Clean Scope Banner */
+    .clean-banner {
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      border-left: 3px solid #10b981;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .clean-title {
+      font-weight: 700;
+      color: #10b981;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .clean-msg {
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+      margin-top: 4px;
     }
 
     /* Clickable Link */
@@ -660,27 +687,43 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
         \`
         : '';
 
+      const isClean = r.candidates.length === 0 && (r.errorSummary.type === 'CleanFile' || r.errorSummary.type === 'NonErrorSelection' || r.errorSummary.type === 'None');
+
       app.innerHTML = \`
         <div class="header">
           <div class="header-title">🔍 BugScope Findings</div>
-          <span class="offline-tag">100% Local</span>
+          <span class="offline-tag">\${isClean ? 'Clean Scope' : '100% Local'}</span>
         </div>
 
-        <div class="card error-banner">
-          <div class="error-type">\${escapeHtml(r.errorSummary.type)}</div>
-          <div class="error-msg">\${escapeHtml(r.errorSummary.message)}</div>
-        </div>
+        \${isClean
+          ? \`
+          <div class="card clean-banner">
+            <div class="clean-title">
+              <span>✅</span>
+              <span>0 Errors Detected</span>
+            </div>
+            <div class="clean-msg">\${escapeHtml(r.errorSummary.message)}</div>
+          </div>
+          \`
+          : \`
+          <div class="card error-banner">
+            <div class="error-type">\${escapeHtml(r.errorSummary.type)}</div>
+            <div class="error-msg">\${escapeHtml(r.errorSummary.message)}</div>
+          </div>
+          \`
+        }
 
         \${primaryHtml}
 
         <div class="card">
           <div class="card-title">
             <span>Impact Blast Radius</span>
-            <span>\${r.candidates.length} Modules</span>
+            <span class="badge \${isClean ? 'badge-observed' : ''}">\${r.candidates.length} Modules</span>
           </div>
-          <div style="display:flex; flex-direction:column; gap:8px;">
-            \${candidatesHtml}
-          </div>
+          \${isClean
+            ? \`<div style="font-size:11px; color:var(--vscode-descriptionForeground); padding:2px 0;">Workspace code is clean. 0 error boundaries or ripple effects detected.</div>\`
+            : \`<div style="display:flex; flex-direction:column; gap:8px;">\${candidatesHtml}</div>\`
+          }
         </div>
 
         <div class="card">
