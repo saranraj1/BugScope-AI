@@ -68,6 +68,16 @@
     "keybindings": [
       {
         "command": "bugscope.analyzeError",
+        "key": "f4",
+        "mac": "f4"
+      },
+      {
+        "command": "bugscope.analyzeError",
+        "key": "shift+f4",
+        "mac": "shift+f4"
+      },
+      {
+        "command": "bugscope.analyzeError",
         "key": "alt+shift+b",
         "mac": "alt+shift+b"
       },

@@ -443,8 +443,8 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
           <div style="font-weight: 600; color: var(--fg);">No Error Analyzed</div>
           <div style="font-size: 12px;">Highlight an error in the editor or terminal, then press:</div>
           <div style="font-weight: 700; color: var(--accent); font-size: 11px; background: rgba(0,0,0,0.2); padding: 6px 10px; border-radius: 4px; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <span style="background: rgba(255,255,255,0.15); padding: 2px 6px; border-radius: 3px; font-family: monospace;">Alt+Shift+B</span>
-            <span style="font-weight: 400; opacity: 0.8;">or Alt+Shift+E</span>
+            <span style="background: rgba(255,255,255,0.15); padding: 2px 6px; border-radius: 3px; font-family: monospace;">F4</span>
+            <span style="font-weight: 400; opacity: 0.8;">or Alt+Shift+B</span>
           </div>
           <div style="margin-top: 14px; border-top: 1px solid var(--card-border); padding-top: 10px; width: 100%;">
             <button id="config-key-btn" style="width: 100%; font-size: 11px; padding: 6px 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--card-border); border-radius: 4px; color: var(--fg); cursor: pointer;">
