@@ -25,11 +25,11 @@ export interface CandidateContext {
  * ImpactScorer - Transparent, multi-factor impact scoring engine.
  * Computes R(f) = w_s*S(f) + w_d*D(f) + w_m*M(f) + w_t*T(f) + B_synergy(f)
  * 
- * Calibrated weights:
+ * Heuristic weights (static analysis priors, uncalibrated for runtime probability):
  * - Stack Proximity (w_s = 0.38): Direct throw site or caller frame proximity
  * - Dependency Adjacency (w_d = 0.32): Upstream caller blast radius & fan-in centrality
  * - Symbol Match (w_m = 0.16): Identifier, function declaration & property specificity
- * - Test Correlation (w_t = 0.14): Existing test suite coverage
+ * - Test Correlation (w_t = 0.14): Discovered test suite association
  * - Compound Synergy: Bonus when candidate is verified across >= 3 independent static dimensions
  */
 export class ImpactScorer {
@@ -241,7 +241,7 @@ export class ImpactScorer {
     }
 
     if (signals.testCorrelation > 0) {
-      reasons.push('Covered by an existing automated test suite');
+      reasons.push('Associated with a discovered test suite candidate');
     }
 
     if (signals.synergyBonus && signals.synergyBonus > 0) {

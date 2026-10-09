@@ -26,7 +26,7 @@ export class SourceResolver {
     this.workspaceRoots = workspaceRoots.map((r) => path.resolve(r));
     this.openDocuments = new Map();
     for (const doc of openDocuments) {
-      this.openDocuments.set(path.resolve(doc.uri.fsPath).toLowerCase(), doc);
+      this.openDocuments.set(WorkspaceSecurity.normalizeForComparison(path.resolve(doc.uri.fsPath)), doc);
     }
   }
 
@@ -101,6 +101,8 @@ export class SourceResolver {
 
   /**
    * Finds the actual filesystem path for a raw path from stack trace.
+   * Prefers exact absolute matches, then exact workspace-relative matches.
+   * Uses verified suffix matching and rejects ambiguous matches when multiple candidates exist.
    */
   private findMatchingWorkspaceFile(rawPath: string): string | null {
     // 1. Direct absolute path check
@@ -118,75 +120,101 @@ export class SourceResolver {
       }
     }
 
-    // 3. Search by relative path suffix or filename in workspace roots
-    const targetBase = path.basename(rawPath);
+    // 3. Normalized suffix or verified filename match across workspace trees
+    const targetNorm = rawPath.replace(/\\/g, '/').replace(/^\.\//, '');
+    const hasDirectoryContext = targetNorm.includes('/');
+    const targetBase = path.basename(targetNorm);
+
+    const candidates: string[] = [];
     for (const root of this.workspaceRoots) {
-      const found = this.searchFileInTree(root, rawPath, targetBase, 0, 5);
-      if (found) {
-        return found;
+      this.collectMatchingFiles(root, 0, 7, candidates, 1000);
+    }
+
+    const isCaseInsensitive = WorkspaceSecurity.isCaseInsensitivePlatform();
+    const targetNormCmp = isCaseInsensitive ? targetNorm.toLowerCase() : targetNorm;
+    const targetBaseCmp = isCaseInsensitive ? targetBase.toLowerCase() : targetBase;
+
+    if (hasDirectoryContext) {
+      // Must match directory suffix (e.g., 'analysis/reportBuilder.ts' must match '.../analysis/reportBuilder.ts')
+      const matched = candidates.filter((cand) => {
+        const candNorm = cand.replace(/\\/g, '/');
+        const candNormCmp = isCaseInsensitive ? candNorm.toLowerCase() : candNorm;
+        return candNormCmp.endsWith('/' + targetNormCmp) || candNormCmp === targetNormCmp;
+      });
+
+      if (matched.length === 1) {
+        return matched[0];
       }
+      if (matched.length > 1) {
+        // If multiple matches exist, pick the one with the closest path depth or longest common prefix
+        // If exact tie, return null to avoid picking arbitrarily
+        matched.sort((a, b) => a.length - b.length);
+        if (matched[0].length < matched[1].length) {
+          return matched[0];
+        }
+        return null; // Ambiguous match
+      }
+      return null;
+    }
+
+    // Bare filename (no directory context in stack trace)
+    const matchedByBase = candidates.filter((cand) => {
+      const base = path.basename(cand);
+      const baseCmp = isCaseInsensitive ? base.toLowerCase() : base;
+      return baseCmp === targetBaseCmp;
+    });
+
+    // If exactly one file in the workspace has this name, resolve it.
+    // If multiple distinct files exist with this name, refuse to guess arbitrarily.
+    if (matchedByBase.length === 1) {
+      return matchedByBase[0];
     }
 
     return null;
   }
 
   /**
-   * Bounded depth-first search for a matching file in the workspace directory.
+   * Bounded depth-first collection of source files in the workspace directory.
    */
-  private searchFileInTree(
+  private collectMatchingFiles(
     dir: string,
-    rawPath: string,
-    targetBase: string,
     depth: number,
-    maxDepth: number
-  ): string | null {
-    if (depth > maxDepth || !fs.existsSync(dir)) {
-      return null;
+    maxDepth: number,
+    results: string[],
+    maxLimit: number
+  ): void {
+    if (depth > maxDepth || results.length >= maxLimit || !fs.existsSync(dir)) {
+      return;
     }
 
     const dirName = path.basename(dir);
     if (WorkspaceSecurity.isIgnoredDirectory(dirName)) {
-      return null;
+      return;
     }
 
     try {
       const entries = fs.readdirSync(dir, { withFileTypes: true });
 
-      // First pass: check files
       for (const entry of entries) {
-        if (entry.isFile()) {
-          const fullPath = path.join(dir, entry.name);
-          // Check exact filename match
-          if (entry.name.toLowerCase() === targetBase.toLowerCase()) {
-            const normalized = fullPath.replace(/\\/g, '/');
-            const targetNorm = rawPath.replace(/\\/g, '/');
-            if (normalized.endsWith(targetNorm) || entry.name.toLowerCase() === targetBase.toLowerCase()) {
-              return fullPath;
-            }
-          }
+        if (results.length >= maxLimit) {
+          break;
         }
-      }
 
-      // Second pass: recurse into subdirectories
-      for (const entry of entries) {
-        if (entry.isDirectory() && !WorkspaceSecurity.isIgnoredDirectory(entry.name)) {
-          const result = this.searchFileInTree(
+        if (entry.isFile()) {
+          results.push(path.join(dir, entry.name));
+        } else if (entry.isDirectory() && !WorkspaceSecurity.isIgnoredDirectory(entry.name)) {
+          this.collectMatchingFiles(
             path.join(dir, entry.name),
-            rawPath,
-            targetBase,
             depth + 1,
-            maxDepth
+            maxDepth,
+            results,
+            maxLimit
           );
-          if (result) {
-            return result;
-          }
         }
       }
     } catch {
-      return null;
+      // Permission or unreadable directory
     }
-
-    return null;
   }
 
   /**
@@ -209,7 +237,7 @@ export class SourceResolver {
     let content: string | null = null;
 
     // Check open documents first for unsaved edits
-    const openDoc = this.openDocuments.get(path.resolve(fsPath).toLowerCase());
+    const openDoc = this.openDocuments.get(WorkspaceSecurity.normalizeForComparison(path.resolve(fsPath)));
     if (openDoc) {
       content = openDoc.getText();
     } else {

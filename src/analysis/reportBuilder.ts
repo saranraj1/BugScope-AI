@@ -13,6 +13,7 @@ import { DependencyAnalyzer } from './dependencyAnalyzer';
 import { SymbolAnalyzer } from './symbolAnalyzer';
 import { TestDiscovery } from './testDiscovery';
 import { ImpactScorer, CandidateContext } from './impactScorer';
+import { WorkspaceSecurity } from '../utils/workspaceSecurity';
 
 export interface AnalyzerOptions {
   workspaceRoots: string[];
@@ -128,11 +129,18 @@ export class ReportBuilder {
       limitations.push(`File in stack trace could not be resolved in workspace: ${missing}`);
     }
 
-    // Identify primary workspace root
-    const primaryRoot = options.workspaceRoots[0] || process.cwd();
+    // Helper to find owning workspace root
+    const findOwningRoot = (filePath: string): string => {
+      for (const r of options.workspaceRoots) {
+        if (WorkspaceSecurity.isPathWithinWorkspace(filePath, r)) {
+          return r;
+        }
+      }
+      return options.workspaceRoots[0] || process.cwd();
+    };
 
     // 3. Dependency Mapping
-    const depAnalyzer = new DependencyAnalyzer(primaryRoot, options.maxFilesScan || 300);
+    const depAnalyzer = new DependencyAnalyzer(options.workspaceRoots, options.maxFilesScan || 300);
     const targetFsPaths = resolvedFrames
       .filter((f) => f.exists && f.isWithinWorkspace)
       .map((f) => f.fsPath);
@@ -142,6 +150,12 @@ export class ReportBuilder {
       options.maxHops || 2
     );
     allEvidence.push(...depEvidence);
+
+    if (depAnalyzer.isTruncated) {
+      limitations.push(
+        `Workspace file scan reached configured limit (${options.maxFilesScan || 300} files). Results reflect partial analysis.`
+      );
+    }
 
     // 4. Symbol Extraction
     const errorTokens = SymbolAnalyzer.extractTokens(parsedError);
@@ -154,7 +168,7 @@ export class ReportBuilder {
     for (let i = 0; i < resolvedFrames.length; i++) {
       const f = resolvedFrames[i];
       if (f.exists && f.isWithinWorkspace) {
-        const key = f.fsPath.toLowerCase();
+        const key = WorkspaceSecurity.normalizeForComparison(f.fsPath);
         if (!candidateMap.has(key)) {
           const symResult = SymbolAnalyzer.matchSymbolsInFile(f.fsPath, errorTokens);
           allEvidence.push(...symResult.evidence);
@@ -192,7 +206,8 @@ export class ReportBuilder {
           existing.importedByCount = Math.max(existing.importedByCount || 0, depInfo.importedByCount);
         }
       } else {
-        const relPath = path.relative(primaryRoot, key).replace(/\\/g, '/');
+        const owningRoot = findOwningRoot(key);
+        const relPath = path.relative(owningRoot, key).replace(/\\/g, '/');
         const symResult = SymbolAnalyzer.matchSymbolsInFile(key, errorTokens);
         allEvidence.push(...symResult.evidence);
 
@@ -211,7 +226,7 @@ export class ReportBuilder {
     }
 
     // 6. Test Discovery
-    const testDiscovery = new TestDiscovery(primaryRoot);
+    const testDiscovery = new TestDiscovery(options.workspaceRoots);
     const candidatePaths = Array.from(candidateMap.values()).map((c) => c.fsPath);
     const { recommendations, evidence: testEvidence, testScores } = testDiscovery.discoverForCandidates(
       candidatePaths

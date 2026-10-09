@@ -27,7 +27,7 @@ describe('CredentialStore Unit Tests', () => {
 
     get<T>(key: string, defaultValue?: T): T {
       const val = this.stateMap.get(key);
-      return val !== undefined ? val : defaultValue;
+      return (val !== undefined ? val : defaultValue) as T;
     }
 
     async update(key: string, value: any): Promise<void> {

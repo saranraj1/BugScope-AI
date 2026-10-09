@@ -1,12 +1,12 @@
 export interface ISecretStorage {
-  get(key: string): Promise<string | undefined>;
-  store(key: string, value: string): Promise<void>;
-  delete(key: string): Promise<void>;
+  get(key: string): PromiseLike<string | undefined>;
+  store(key: string, value: string): PromiseLike<void>;
+  delete(key: string): PromiseLike<void>;
 }
 
 export interface IMemento {
   get<T>(key: string, defaultValue?: T): T;
-  update(key: string, value: any): Promise<void>;
+  update(key: string, value: any): PromiseLike<void>;
 }
 
 export interface IUiHost {
@@ -16,10 +16,11 @@ export interface IUiHost {
     placeHolder?: string;
     password?: boolean;
     ignoreFocusOut?: boolean;
-  }): Promise<string | undefined>;
-  showInformationMessage(message: string, ...items: string[]): Promise<string | undefined>;
-  enableAiInConfig?(): Promise<void>;
+  }): PromiseLike<string | undefined>;
+  showInformationMessage(message: string, ...items: string[]): PromiseLike<string | undefined>;
+  enableAiInConfig?(): PromiseLike<void>;
   getConfigApiKey?(): string | undefined;
+  clearConfigApiKey?(): PromiseLike<void>;
 }
 
 /**
@@ -29,6 +30,7 @@ export interface IUiHost {
 export class CredentialStore {
   public static readonly SECRET_KEY = 'bugscope.ai.apiKey';
   public static readonly PROMPTED_STATE_KEY = 'bugscope.hasPromptedApiKey';
+  public static readonly DELETED_STATE_KEY = 'bugscope.apiKeyExplicitlyDeleted';
 
   private secrets: ISecretStorage;
   private globalState: IMemento;
@@ -42,7 +44,8 @@ export class CredentialStore {
 
   /**
    * Securely retrieves the API key stored in the OS Keychain.
-   * Falls back to VS Code settings if present (for backward compatibility).
+   * Auto-migrates plaintext settings if present, but prevents silent
+   * fallback to stale settings if the key was explicitly deleted.
    */
   public async getApiKey(): Promise<string | undefined> {
     try {
@@ -54,12 +57,21 @@ export class CredentialStore {
       // In case secret storage is temporarily inaccessible
     }
 
-    // Fallback to configuration if user manually set it in settings.json
+    // Check if user explicitly deleted their API key
+    const wasDeleted = this.globalState.get<boolean>(CredentialStore.DELETED_STATE_KEY, false);
+    if (wasDeleted) {
+      return undefined;
+    }
+
+    // Fallback to configuration if user manually set it in settings.json (for migration)
     try {
       if (this.uiHost?.getConfigApiKey) {
         const configKey = this.uiHost.getConfigApiKey();
         if (configKey && configKey.trim().length > 0) {
-          return configKey.trim();
+          const trimmed = configKey.trim();
+          // Auto-migrate to secure Keychain
+          await this.secrets.store(CredentialStore.SECRET_KEY, trimmed);
+          return trimmed;
         }
       }
     } catch {}
@@ -77,6 +89,7 @@ export class CredentialStore {
       return;
     }
 
+    await this.globalState.update(CredentialStore.DELETED_STATE_KEY, false);
     await this.secrets.store(CredentialStore.SECRET_KEY, trimmed);
 
     // Auto-enable AI enrichment in configuration
@@ -88,10 +101,18 @@ export class CredentialStore {
   }
 
   /**
-   * Deletes the stored API key from the OS Keychain.
+   * Deletes the stored API key from the OS Keychain and marks it deleted.
+   * Clears plaintext settings if present to prevent resurrecting deleted credentials.
    */
   public async deleteApiKey(): Promise<void> {
     await this.secrets.delete(CredentialStore.SECRET_KEY);
+    await this.globalState.update(CredentialStore.DELETED_STATE_KEY, true);
+
+    try {
+      if (this.uiHost?.clearConfigApiKey) {
+        await this.uiHost.clearConfigApiKey();
+      }
+    } catch {}
   }
 
   /**

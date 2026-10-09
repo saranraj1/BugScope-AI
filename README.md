@@ -10,7 +10,7 @@
 [![Platform](https://img.shields.io/badge/Platform-VS%20Code%20Extension-blue)](https://code.visualstudio.com/)
 [![Mode](https://img.shields.io/badge/Mode-Local--First%20%7C%20100%25%20Offline-green)](PLAN.md)
 [![Sprint](https://img.shields.io/badge/Sprint-NEXUS'26%20Hackathon%20(24h)-orange)](PLAN.md)
-[![Tests](https://img.shields.io/badge/Tests-49%2F49%20Passing-brightgreen)](test/)
+[![Tests](https://img.shields.io/badge/Tests-56%2F56%20Passing-brightgreen)](test/)
 
 </div>
 
@@ -21,10 +21,26 @@
 **BugScope AI** turns raw stack traces and error messages into evidence-backed, local investigations of impacted code and tests worth running first — without leaving the editor or requiring external API keys.
 
 ### Core Workflow
-1. **Highlight:** Select any error message or stack trace in an active editor tab (e.g. `.log`, `.ts`, `.js`, or terminal output pasted into a scratch buffer).
-2. **Right-Click:** Choose `BugScope AI: Analyse Error Impact` from the editor context menu.
+1. **Highlight:** Select any error message or stack trace in an active editor tab (e.g. `.log`, `.ts`, `.js`, `.py`, or terminal output pasted into an editor buffer).
+2. **Right-Click:** Choose `BugScope AI: Analyse Error Impact` from the editor context menu (or press `F4` / `Alt+Shift+B`).
 3. **Inspect:** BugScope's dedicated sidebar view resolves stack frames to actual workspace files, extracts AST dependencies, ranks impacted modules with explicit evidence, and highlights relevant test suites.
 4. **Navigate:** Click any candidate reference or throw site to jump straight to that exact line in code.
+
+---
+
+## 📊 Capability Matrix
+
+| Feature / Domain | Implemented Support | Verified Mechanism & Constraints |
+| :--- | :--- | :--- |
+| **JavaScript / TypeScript** | ✅ Full AST Parsing | TypeScript Compiler API (`ts.createSourceFile`). Static imports, re-exports, dynamic imports, CommonJS `require`, and `tsconfig.json` path aliases (`@/*`, `~/*`). Comments and strings are ignored. |
+| **Python** | ✅ Native AST & RegEx | Multi-line parenthesized imports (`from m import (a, b)`), comments stripped, single imports (`import x as y`), relative package imports (`from .utils import f`). Virtual environments (`.venv`, `__pycache__`) excluded. |
+| **Stack Trace Parsing** | ✅ Multi-Engine | V8 / Node.js, TypeScript transpilations, Python 3 tracebacks (chained `raise ... from` exception tracking), ANSI terminal escape code stripping, paths containing spaces, Windows drive letters. |
+| **Source Resolution** | ✅ Multi-Root & Disambiguation | Exact canonical paths, verified directory suffix matching, unsaved dirty buffer priority, symlink resolution. Rejects ambiguous duplicate basenames when multiple matches exist across folders. |
+| **Workspace Security** | ✅ Strict Containment | `path.relative` containment algorithm (prevents sibling-prefix attacks), platform-aware path casing (Windows vs Linux case preservation), sensitive file exclusion (`.env`, `*.key`, `id_rsa`), nonce-based webview CSP. |
+| **Dependency Mapping** | ✅ 1-Hop & 2-Hop Graph | Directional importer/callee edges, fan-in centrality tracking, global traversal budget (max 300 files), circular import handling, duplicate edge suppression. |
+| **Test Discovery** | ✅ Multi-Pattern Matching | Discovers matching suites for candidates (`*.test.ts`, `*.spec.ts`, `test_*.py`, `*_test.py`, `__tests__/*`). Distinguishes "related test candidates" from verified execution coverage. |
+| **Impact Ranking** | ✅ Calibrated Heuristic Engine | Transparent multi-vector scoring: Stack proximity (0.45) + Dependency adjacency (0.25) + Blast radius / fan-in (0.15) + Compound synergy (0.15). Scores strictly bounded [0.0 - 1.0]. |
+| **AI Enrichment** | ⚡ Optional & Privacy-Guarded | Disabled by default (100% offline). Compatible with Ollama, LM Studio, or OpenAI. Request timeouts, bounded response streams (200KB limit), redirect rejection, VS Code Keychain SecretStorage. |
 
 ---
 
@@ -65,8 +81,8 @@ flowchart TD
 
         subgraph Pipeline ["Evidence Pipeline"]
             SymbolInspection["🔬 Symbol & Syntax Inspection<br/>(AST / Tokens)"]
-            DepAnalysis["🕸️ Dependency Mapper<br/>(Imports / Call graph)"]
-            TestDiscovery["🧪 Test Suite Discovery<br/>(*.test.ts / *.spec.ts)"]
+            DepAnalysis["🕸️ Dependency Mapper<br/>(TypeScript AST & Python Imports)"]
+            TestDiscovery["🧪 Test Suite Discovery<br/>(*.test.ts / test_*.py)"]
         end
 
         LocalEngine --> SymbolInspection
@@ -77,7 +93,7 @@ flowchart TD
         DepAnalysis --> EvidenceCollector
         TestDiscovery --> EvidenceCollector
 
-        EvidenceCollector --> ImpactRanker["📈 Impact Scoring Engine<br/>R(f) = wₛS(f) + w_d D(f) + wₘM(f) + w_t T(f)"]
+        EvidenceCollector --> ImpactRanker["📈 Impact Scoring Engine<br/>R(f) = wₛS(f) + w_d D(f) + w_b B(f) + w_c C(f)"]
         ImpactRanker --> LocalReport["📑 Local Baseline Report<br/>(Verified Facts & Evidence)"]
     end
 
@@ -110,11 +126,21 @@ flowchart TD
 
 ---
 
+## 🔒 Security & Privacy Guarantees
+
+- **100% Offline & Local-First:** All stack parsing, source resolution, AST dependency mapping, and impact scoring run locally on your machine. No telemetry, analytics, or background pings exist.
+- **Keychain Secret Storage:** AI provider API keys are stored in VS Code's OS-backed SecretStorage keychain (`context.secrets`), never in plaintext `settings.json`. Explicit key deletion prevents resurrecting stale tokens.
+- **Strict Path Containment:** Rejects directory traversal attacks (`..`), sibling-prefix workspace spoofing (`/workspace-other`), and symlink escapes using real filesystem path resolution.
+- **Restricted Webview CSP:** Enforces nonce-based script execution with zero `unsafe-inline` or `unsafe-eval` scripts. Untrusted stack traces and error snippets are sanitized before rendering.
+- **Controlled External Egress:** If optional AI enrichment is enabled, requests only connect via HTTP/HTTPS, reject unexpected redirects, bound payload responses to 200KB, and enforce a strict timeout.
+
+---
+
 ## 🚀 Quickstart & Installation
 
 ### Option 1: Install Pre-Built VSIX
 ```bash
-code --install-extension bugscope-ai-0.1.0.vsix
+code --install-extension bugscope-ai-0.2.3.vsix
 ```
 
 ### Option 2: Run in Development Host
@@ -126,6 +152,7 @@ code --install-extension bugscope-ai-0.1.0.vsix
    ```
 2. Build extension:
    ```bash
+   npm run compile
    npm run build
    ```
 3. Press `F5` in VS Code to launch the **Extension Development Host**.
@@ -134,22 +161,25 @@ code --install-extension bugscope-ai-0.1.0.vsix
 
 ## 🧪 Running Automated Tests
 
-Run the complete 19-scenario test suite verifying parser robustness, path security boundaries, dependency mapping, impact ranking, and end-to-end flows:
+Run the complete 56-scenario test suite verifying parser robustness, path security boundaries, dependency mapping, impact ranking, and end-to-end flows:
 
 ```bash
+npm run compile
 npm test
 ```
 
 Test coverage includes:
-- ✅ **Valid TypeScript & JavaScript stack traces** (multiple frames, async wrappers)
-- ✅ **Python tracebacks** (extracting bottom exception header & frames)
+- ✅ **Valid TypeScript & JavaScript stack traces** (multiple frames, async wrappers, method aliases)
+- ✅ **Python tracebacks** (extracting bottom exception header, chained tracebacks, and nested frames)
 - ✅ **Bare error messages** (ReferenceError, TypeError without frames)
 - ✅ **Malformed crash dumps** (graceful error handling without IDE crash)
-- ✅ **Empty and arbitrary text selections** (defensive guidance prompts)
-- ✅ **Path traversal prevention** (`../..` containment checks)
+- ✅ **Empty and arbitrary text selections** (defensive guidance prompts without false error claims)
+- ✅ **Path traversal & sibling-prefix prevention** (`path.relative` containment and symlink checks)
+- ✅ **Duplicate basename disambiguation** (directory suffix matching without blind basename coincidence)
 - ✅ **Sensitive file exclusion** (`.env`, `*.key`, `id_rsa`)
-- ✅ **Unsaved dirty editor buffer preference** over stale disk contents
-- ✅ **Static dependency & import graph construction** (1-hop & 2-hop distances)
+- ✅ **TypeScript AST dependency extraction** (ignoring fake imports in comments and strings)
+- ✅ **Global analysis scan budgets** (300-file traversal budget with explicit truncation reporting)
+- ✅ **Multi-root workspace analysis** (consistent indexing and ownership across workspace folders)
 - ✅ **Matching test suite discovery** and regression test guidance
 - ✅ **100% offline baseline execution** and graceful handling of unavailable AI endpoints
 
@@ -169,11 +199,13 @@ Test coverage includes:
 4. The **BugScope AI** sidebar opens instantly, showing:
    - **Throw Origin:** `src/checkout.ts:27` with surrounding code preview.
    - **Blast Radius:** Ranked candidate modules (`#1 checkout.ts`, `#2 orderService.ts`, `#3 routes/cart.ts`) with calculated impact scores and explicit dependency reasons.
-   - **Targeted Test Coverage:** Links directly to `test/checkout.test.ts`.
+   - **Targeted Test Coverage:** Discovered candidates in `test/checkout.test.ts`.
 5. Click on `src/checkout.ts` to navigate directly to the failure site in the editor.
 
 ---
 
 ## 📄 License & Specification
 - **Master Plan & Technical Spec:** [PLAN.md](PLAN.md)
+- **Repair Tracker:** [docs/REPAIR_TRACKER.md](docs/REPAIR_TRACKER.md)
+- **Engineering Repair Report:** [docs/REPAIR_REPORT.md](docs/REPAIR_REPORT.md)
 - **License:** [MIT](LICENSE)

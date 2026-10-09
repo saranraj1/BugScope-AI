@@ -76,14 +76,25 @@ Return a valid JSON object matching:
   }
 
   private async queryProvider(
-    prompt: string
+    prompt: string,
+    externalSignal?: AbortSignal
   ): Promise<{ summary: string; hypotheses: string[]; recommendedActions: string[] } | null> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs || 4000);
+    const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs || 5000);
+
+    // If external signal is aborted, abort our controller
+    if (externalSignal) {
+      externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
 
     try {
-      const url = `${this.config.endpoint.replace(/\/+$/, '')}/chat/completions`;
-      const res = await fetch(url, {
+      // Validate endpoint URL format
+      const parsedUrl = new URL(`${this.config.endpoint.replace(/\/+$/, '')}/chat/completions`);
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        return null;
+      }
+
+      const res = await fetch(parsedUrl.toString(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -95,18 +106,30 @@ Return a valid JSON object matching:
           temperature: 0.2,
           max_tokens: 400
         }),
-        signal: controller.signal
+        signal: controller.signal,
+        // Prevent redirecting authenticated requests to unintended hosts
+        redirect: 'error'
       });
-
-      clearTimeout(timeout);
 
       if (!res.ok) {
         return null;
       }
 
-      const json: any = await res.json();
+      // Check content-length header if provided
+      const contentLength = res.headers.get('content-length');
+      if (contentLength && parseInt(contentLength, 10) > 200_000) {
+        return null; // Bounded response size (200KB limit)
+      }
+
+      // Read text and enforce maximum byte bound
+      const rawText = await res.text();
+      if (!rawText || rawText.length > 200_000) {
+        return null;
+      }
+
+      const json: any = JSON.parse(rawText);
       const content = json.choices?.[0]?.message?.content;
-      if (!content) {
+      if (!content || typeof content !== 'string') {
         return null;
       }
 
@@ -114,17 +137,37 @@ Return a valid JSON object matching:
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
+
+        const summary = typeof parsed.summary === 'string' && parsed.summary.trim()
+          ? parsed.summary.trim().slice(0, 500)
+          : 'Analysis enriched.';
+
+        const hypotheses = Array.isArray(parsed.hypotheses)
+          ? parsed.hypotheses
+              .filter((h: any) => typeof h === 'string' && h.trim().length > 0)
+              .map((h: string) => h.trim().slice(0, 300))
+              .slice(0, 5)
+          : [];
+
+        const recommendedActions = Array.isArray(parsed.recommendedActions)
+          ? parsed.recommendedActions
+              .filter((a: any) => typeof a === 'string' && a.trim().length > 0)
+              .map((a: string) => a.trim().slice(0, 300))
+              .slice(0, 5)
+          : [];
+
         return {
-          summary: typeof parsed.summary === 'string' ? parsed.summary : 'Analysis enriched.',
-          hypotheses: Array.isArray(parsed.hypotheses) ? parsed.hypotheses : [],
-          recommendedActions: Array.isArray(parsed.recommendedActions) ? parsed.recommendedActions : []
+          summary,
+          hypotheses,
+          recommendedActions
         };
       }
 
       return null;
     } catch {
-      clearTimeout(timeout);
       return null;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 }

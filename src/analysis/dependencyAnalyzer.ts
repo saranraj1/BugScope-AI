@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
+import * as ts from 'typescript';
 import { WorkspaceSecurity } from '../utils/workspaceSecurity';
 import { EvidenceRecord } from '../models/analysisResult';
 
@@ -13,30 +14,73 @@ export interface ModuleNode {
 }
 
 /**
- * DependencyAnalyzer - Lightweight, fast AST/regex dependency mapper
- * for TypeScript & JavaScript files.
+ * DependencyAnalyzer - TypeScript/JavaScript AST & Python dependency mapper.
+ * Enforces a strict global file-scan budget across the entire workspace.
  */
 export class DependencyAnalyzer {
-  private workspaceRoot: string;
+  private workspaceRoots: string[];
   private maxFilesScan: number;
   private moduleGraph: Map<string, ModuleNode> = new Map();
+  private tsConfigPathsCache: Map<string, string[]> = new Map();
 
-  constructor(workspaceRoot: string, maxFilesScan: number = 300) {
-    this.workspaceRoot = path.resolve(workspaceRoot);
-    this.maxFilesScan = maxFilesScan;
+  /** Whether the workspace file scan was truncated due to budget exhaustion */
+  public isTruncated: boolean = false;
+  /** Total number of source files scanned */
+  public totalScannedFiles: number = 0;
+
+  constructor(workspaceRootOrRoots: string | string[], maxFilesScanOrOptions: number | { maxFilesScan?: number } = 300) {
+    if (Array.isArray(workspaceRootOrRoots)) {
+      this.workspaceRoots = workspaceRootOrRoots.map((r) => path.resolve(r));
+    } else {
+      this.workspaceRoots = [path.resolve(workspaceRootOrRoots)];
+    }
+    if (typeof maxFilesScanOrOptions === 'number') {
+      this.maxFilesScan = maxFilesScanOrOptions;
+    } else if (maxFilesScanOrOptions && typeof maxFilesScanOrOptions.maxFilesScan === 'number') {
+      this.maxFilesScan = maxFilesScanOrOptions.maxFilesScan;
+    } else {
+      this.maxFilesScan = 300;
+    }
+    this.loadTsConfigPaths();
+  }
+
+  public get workspaceRoot(): string {
+    return this.workspaceRoots[0] || process.cwd();
+  }
+
+  /**
+   * Identifies which workspace root owns a given file path.
+   */
+  public findOwningWorkspaceRoot(filePath: string): string {
+    for (const root of this.workspaceRoots) {
+      if (WorkspaceSecurity.isPathWithinWorkspace(filePath, root)) {
+        return root;
+      }
+    }
+    return this.workspaceRoot;
   }
 
   /**
    * Scans workspace source files and builds the import/export relationship graph.
+   * Enforces global maxFilesScan budget across all directory branches and workspace roots.
    */
   public buildGraph(): Map<string, ModuleNode> {
     this.moduleGraph.clear();
-    const sourceFiles = this.collectSourceFiles(this.workspaceRoot, 0, 8);
+    this.isTruncated = false;
+
+    const collected = new Set<string>();
+    for (const root of this.workspaceRoots) {
+      this.collectSourceFiles(root, 0, 8, collected);
+    }
+    this.totalScannedFiles = collected.size;
 
     // Initialize nodes
-    for (const file of sourceFiles) {
-      const rel = path.relative(this.workspaceRoot, file).replace(/\\/g, '/');
-      this.moduleGraph.set(path.resolve(file).toLowerCase(), {
+    for (const file of collected) {
+      const root = this.findOwningWorkspaceRoot(file);
+      const rel = path.relative(root, file).replace(/\\/g, '/');
+      const key = WorkspaceSecurity.normalizeForComparison(file);
+
+      this.moduleGraph.set(key, {
         fsPath: file,
         relativePath: rel,
         imports: [],
@@ -45,7 +89,7 @@ export class DependencyAnalyzer {
     }
 
     // Parse imports for each file
-    for (const [key, node] of this.moduleGraph.entries()) {
+    for (const [_key, node] of this.moduleGraph.entries()) {
       const content = WorkspaceSecurity.readBoundedTextFile(node.fsPath);
       if (!content) {
         continue;
@@ -56,13 +100,18 @@ export class DependencyAnalyzer {
         ? this.extractPythonImports(content, node.fsPath)
         : this.extractImportSpecifiers(content, node.fsPath);
 
-      for (const targetPath of importedPaths) {
-        const targetKey = path.resolve(targetPath).toLowerCase();
+      // Deduplicate edges
+      const uniqueTargets = Array.from(new Set(importedPaths));
+
+      for (const targetPath of uniqueTargets) {
+        const targetKey = WorkspaceSecurity.normalizeForComparison(targetPath);
         node.imports.push(targetPath);
 
         const targetNode = this.moduleGraph.get(targetKey);
         if (targetNode) {
-          targetNode.importedBy.push(node.fsPath);
+          if (!targetNode.importedBy.includes(node.fsPath)) {
+            targetNode.importedBy.push(node.fsPath);
+          }
         }
       }
     }
@@ -74,7 +123,7 @@ export class DependencyAnalyzer {
    * Returns the module graph node for a given file path if indexed.
    */
   public getNode(fsPath: string): ModuleNode | undefined {
-    return this.moduleGraph.get(path.resolve(fsPath).toLowerCase());
+    return this.moduleGraph.get(WorkspaceSecurity.normalizeForComparison(fsPath));
   }
 
   /**
@@ -190,19 +239,33 @@ export class DependencyAnalyzer {
   }
 
   /**
-   * Recursively finds source files (.ts, .tsx, .js, .jsx) avoiding ignored folders.
+   * Recursively finds source files (.ts, .tsx, .js, .jsx, .py) avoiding ignored folders.
+   * Enforces global maxFilesScan across all recursive subtrees.
    */
-  private collectSourceFiles(dir: string, depth: number, maxDepth: number): string[] {
-    const results: string[] = [];
-    if (depth > maxDepth || results.length >= this.maxFilesScan || !fs.existsSync(dir)) {
-      return results;
+  private collectSourceFiles(
+    dir: string,
+    depth: number,
+    maxDepth: number,
+    collected: Set<string>
+  ): void {
+    if (depth > maxDepth || collected.size >= this.maxFilesScan || !fs.existsSync(dir)) {
+      if (collected.size >= this.maxFilesScan) {
+        this.isTruncated = true;
+      }
+      return;
+    }
+
+    const dirName = path.basename(dir);
+    if (WorkspaceSecurity.isIgnoredDirectory(dirName)) {
+      return;
     }
 
     try {
       const entries = fs.readdirSync(dir, { withFileTypes: true });
 
       for (const entry of entries) {
-        if (results.length >= this.maxFilesScan) {
+        if (collected.size >= this.maxFilesScan) {
+          this.isTruncated = true;
           break;
         }
 
@@ -211,66 +274,167 @@ export class DependencyAnalyzer {
           if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py'].includes(ext)) {
             // Ignore declaration files
             if (!entry.name.endsWith('.d.ts')) {
-              results.push(path.join(dir, entry.name));
+              collected.add(path.resolve(dir, entry.name));
             }
           }
         } else if (entry.isDirectory()) {
           if (!WorkspaceSecurity.isIgnoredDirectory(entry.name)) {
-            const sub = this.collectSourceFiles(path.join(dir, entry.name), depth + 1, maxDepth);
-            results.push(...sub);
+            this.collectSourceFiles(path.join(dir, entry.name), depth + 1, maxDepth, collected);
           }
         }
       }
     } catch {
-      // Ignore directory access errors
+      // Ignore unreadable directories
     }
-
-    return results;
   }
 
   /**
-   * Extracts static import specifiers from file content and resolves them to disk.
+   * Loads compilerOptions.paths and baseUrl from any tsconfig.json in workspace roots.
    */
-  private extractImportSpecifiers(content: string, sourceFilePath: string): string[] {
-    const resolvedImports: string[] = [];
-    const sourceDir = path.dirname(sourceFilePath);
+  private loadTsConfigPaths(): void {
+    for (const root of this.workspaceRoots) {
+      const tsConfigPath = path.join(root, 'tsconfig.json');
+      if (fs.existsSync(tsConfigPath)) {
+        try {
+          const content = fs.readFileSync(tsConfigPath, 'utf8');
+          const cleaned = content.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
+          const parsed = JSON.parse(cleaned);
+          const compilerOptions = parsed.compilerOptions || {};
+          const baseUrl = compilerOptions.baseUrl ? path.resolve(root, compilerOptions.baseUrl) : root;
+          const pathsObj = compilerOptions.paths || {};
 
-    // Regex matching:
-    // import ... from './target'
-    // import './target'
-    // import('./target')
-    // export ... from './target'
-    // const x = require('./target')
-    const importRegex = /(?:import\s+(?:[\w\s{},*]+from\s+)?|import\s*\(\s*|export\s+(?:[\w\s{},*]+from\s+)?|require\s*\(\s*)['"]([^'"]+)['"]/g;
+          for (const [aliasPattern, targetList] of Object.entries(pathsObj)) {
+            if (Array.isArray(targetList)) {
+              const cleanAlias = aliasPattern.replace(/\/\*$/, '');
+              const resolvedTargets = targetList.map((t: string) =>
+                path.resolve(baseUrl, t.replace(/\/\*$/, ''))
+              );
+              this.tsConfigPathsCache.set(cleanAlias, resolvedTargets);
+            }
+          }
+        } catch {}
+      }
+    }
+  }
 
-    let match: RegExpExecArray | null;
-    while ((match = importRegex.exec(content)) !== null) {
-      const specifier = match[1];
-
-      // Only resolve relative project imports (starts with ./ or ../) or path aliases (@/, ~/)
-      if (specifier.startsWith('.')) {
-        const resolved = this.resolveRelativeModule(sourceDir, specifier);
-        if (resolved) {
-          resolvedImports.push(resolved);
-        }
-      } else if (specifier.startsWith('@/') || specifier.startsWith('~/')) {
-        // Modern Next.js / TypeScript path aliases (@/ or ~/)
-        const aliasSub = specifier.substring(2);
-        const candidates = [
-          path.join(this.workspaceRoot, 'src', aliasSub),
-          path.join(this.workspaceRoot, aliasSub)
-        ];
-        for (const cand of candidates) {
-          const resolved = this.resolveFileWithExtensions(cand);
+  /**
+   * Resolves path alias specifiers using tsconfig.json or convention (@/, ~/).
+   */
+  private resolveAliasModule(specifier: string): string | null {
+    // 1. Configured tsconfig paths
+    for (const [aliasPrefix, targetDirs] of this.tsConfigPathsCache.entries()) {
+      if (specifier === aliasPrefix || specifier.startsWith(aliasPrefix + '/')) {
+        const subPath = specifier.substring(aliasPrefix.length).replace(/^\/+/, '');
+        for (const targetDir of targetDirs) {
+          const candidateBase = subPath ? path.join(targetDir, subPath) : targetDir;
+          const resolved = this.resolveFileWithExtensions(candidateBase);
           if (resolved) {
-            resolvedImports.push(resolved);
-            break;
+            return resolved;
           }
         }
       }
     }
 
-    return resolvedImports;
+    // 2. Modern Next.js / TypeScript path aliases (@/ or ~/)
+    if (specifier.startsWith('@/') || specifier.startsWith('~/')) {
+      const aliasSub = specifier.substring(2);
+      for (const root of this.workspaceRoots) {
+        const candidates = [
+          path.join(root, 'src', aliasSub),
+          path.join(root, aliasSub)
+        ];
+        for (const cand of candidates) {
+          const resolved = this.resolveFileWithExtensions(cand);
+          if (resolved) {
+            return resolved;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extracts static import specifiers using TypeScript Compiler AST (or lexical fallback)
+   * completely ignoring comments and string literals.
+   */
+  private extractImportSpecifiers(content: string, sourceFilePath: string): string[] {
+    const rawSpecifiers: string[] = [];
+    const sourceDir = path.dirname(sourceFilePath);
+
+    try {
+      const sourceFile = ts.createSourceFile(
+        sourceFilePath,
+        content,
+        ts.ScriptTarget.Latest,
+        false
+      );
+
+      const visit = (node: ts.Node) => {
+        // 1. Static import: import ... from '...'
+        if (ts.isImportDeclaration(node)) {
+          if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+            rawSpecifiers.push(node.moduleSpecifier.text);
+          }
+        }
+        // 2. Static re-export: export ... from '...'
+        else if (ts.isExportDeclaration(node)) {
+          if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+            rawSpecifiers.push(node.moduleSpecifier.text);
+          }
+        }
+        // 3. Dynamic import(...) or require(...)
+        else if (ts.isCallExpression(node)) {
+          if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+            const firstArg = node.arguments[0];
+            if (firstArg && ts.isStringLiteral(firstArg)) {
+              rawSpecifiers.push(firstArg.text);
+            }
+          } else if (
+            ts.isIdentifier(node.expression) &&
+            node.expression.text === 'require'
+          ) {
+            const firstArg = node.arguments[0];
+            if (firstArg && ts.isStringLiteral(firstArg)) {
+              rawSpecifiers.push(firstArg.text);
+            }
+          }
+        }
+
+        ts.forEachChild(node, visit);
+      };
+
+      visit(sourceFile);
+    } catch {
+      // Fallback: Strip comments first and use regex if AST throws
+      const stripped = content
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/.*$/gm, '');
+      const importRegex = /(?:import\s+(?:[\w\s{},*]+from\s+)?|import\s*\(\s*|export\s+(?:[\w\s{},*]+from\s+)?|require\s*\(\s*)['"]([^'"]+)['"]/g;
+      let m: RegExpExecArray | null;
+      while ((m = importRegex.exec(stripped)) !== null) {
+        rawSpecifiers.push(m[1]);
+      }
+    }
+
+    const resolvedImports = new Set<string>();
+
+    for (const specifier of rawSpecifiers) {
+      if (specifier.startsWith('.')) {
+        const resolved = this.resolveRelativeModule(sourceDir, specifier);
+        if (resolved) {
+          resolvedImports.add(resolved);
+        }
+      } else {
+        const resolved = this.resolveAliasModule(specifier);
+        if (resolved) {
+          resolvedImports.add(resolved);
+        }
+      }
+    }
+
+    return Array.from(resolvedImports);
   }
 
   /**
@@ -440,7 +604,7 @@ export class DependencyAnalyzer {
     if (
       fs.existsSync(candidatePath) &&
       fs.statSync(candidatePath).isFile() &&
-      WorkspaceSecurity.isPathWithinWorkspace(candidatePath, this.workspaceRoot)
+      this.workspaceRoots.some((r) => WorkspaceSecurity.isPathWithinWorkspace(candidatePath, r))
     ) {
       set.add(path.resolve(candidatePath));
     }

@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
+import { WebviewAction } from '../models/analysisResult';
 
 /**
  * WorkspaceSecurity - Enforces boundaries, path traversal protections,
@@ -54,8 +55,26 @@ export class WorkspaceSecurity {
   }
 
   /**
+   * Helper to determine if current operating system has a case-insensitive filesystem by default.
+   */
+  public static isCaseInsensitivePlatform(): boolean {
+    return process.platform === 'win32' || process.platform === 'darwin';
+  }
+
+  /**
+   * Canonicalizes a path for comparison without destructively lowercasing on Linux.
+   */
+  public static normalizeForComparison(filePath: string): string {
+    const resolved = path.resolve(filePath);
+    return WorkspaceSecurity.isCaseInsensitivePlatform()
+      ? resolved.toLowerCase()
+      : resolved;
+  }
+
+  /**
    * Safely resolves a path and ensures it stays strictly within the workspace root.
-   * Resolves symlinks using fs.realpathSync to prevent symlink directory escape.
+   * Uses path-relative containment rather than naive string prefixes to prevent sibling-prefix traversal.
+   * Resolves symlinks using fs.realpathSync to prevent symlink directory escapes.
    */
   public static isPathWithinWorkspace(targetPath: string, workspaceRoot: string): boolean {
     if (!targetPath || !workspaceRoot) {
@@ -67,26 +86,52 @@ export class WorkspaceSecurity {
       let resolvedRoot = path.resolve(workspaceRoot);
 
       // Resolve real filesystem paths to catch symlink escapes
-      if (fs.existsSync(resolvedTarget)) {
-        try {
+      try {
+        if (fs.existsSync(resolvedTarget)) {
           resolvedTarget = fs.realpathSync(resolvedTarget);
-        } catch {}
-      }
-      if (fs.existsSync(resolvedRoot)) {
-        try {
+        } else {
+          // If the target file doesn't exist yet, resolve the closest existing parent directory
+          let parent = path.dirname(resolvedTarget);
+          while (parent && parent !== path.dirname(parent)) {
+            if (fs.existsSync(parent)) {
+              const realParent = fs.realpathSync(parent);
+              const remainder = path.relative(parent, resolvedTarget);
+              resolvedTarget = path.resolve(realParent, remainder);
+              break;
+            }
+            parent = path.dirname(parent);
+          }
+        }
+      } catch {}
+
+      try {
+        if (fs.existsSync(resolvedRoot)) {
           resolvedRoot = fs.realpathSync(resolvedRoot);
-        } catch {}
+        }
+      } catch {}
+
+      const compareTarget = WorkspaceSecurity.normalizeForComparison(resolvedTarget);
+      const compareRoot = WorkspaceSecurity.normalizeForComparison(resolvedRoot);
+
+      // Exact match
+      if (compareTarget === compareRoot) {
+        return true;
       }
 
-      const normalizedTarget = resolvedTarget.toLowerCase();
-      const normalizedRoot = resolvedRoot.toLowerCase();
+      // Compute relative path from root to target
+      const rel = path.relative(compareRoot, compareTarget);
 
-      // Ensure root ends with separator for prefix check or exact match
-      const rootPrefix = normalizedRoot.endsWith(path.sep)
-        ? normalizedRoot
-        : normalizedRoot + path.sep;
+      // If relative path starts with '..' or is absolute (different drive on Windows), it is outside!
+      if (
+        rel === '..' ||
+        rel.startsWith('..' + path.sep) ||
+        rel.startsWith('../') ||
+        path.isAbsolute(rel)
+      ) {
+        return false;
+      }
 
-      return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(rootPrefix);
+      return true;
     } catch {
       return false;
     }
@@ -149,5 +194,43 @@ export class WorkspaceSecurity {
     cleaned = cleaned.trim();
 
     return path.normalize(cleaned);
+  }
+
+  /**
+   * Validates untrusted incoming webview messages against an explicit schema.
+   */
+  public static validateWebviewAction(msg: unknown): WebviewAction | null {
+    if (!msg || typeof msg !== 'object') {
+      return null;
+    }
+    const m = msg as Record<string, unknown>;
+    if (typeof m.action !== 'string') {
+      return null;
+    }
+    switch (m.action) {
+      case 'OPEN_LOCATION': {
+        if (typeof m.file !== 'string' || !m.file.trim()) {
+          return null;
+        }
+        const line = typeof m.line === 'number' && Number.isInteger(m.line) && m.line >= 1 ? m.line : 1;
+        const col = typeof m.column === 'number' && Number.isInteger(m.column) && m.column >= 1 ? m.column : undefined;
+        return {
+          action: 'OPEN_LOCATION',
+          file: m.file.trim(),
+          line,
+          column: col
+        };
+      }
+      case 'RERUN_ANALYSIS':
+        return { action: 'RERUN_ANALYSIS' };
+      case 'CLEAR':
+        return { action: 'CLEAR' };
+      case 'COPY_REPORT':
+        return { action: 'COPY_REPORT' };
+      case 'CONFIGURE_KEY':
+        return { action: 'CONFIGURE_KEY' };
+      default:
+        return null;
+    }
   }
 }

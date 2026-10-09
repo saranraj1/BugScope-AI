@@ -18,6 +18,10 @@ export function activate(context: vscode.ExtensionContext) {
     getConfigApiKey: () => {
       const config = vscode.workspace.getConfiguration('bugscope');
       return config.get<string>('ai.apiKey');
+    },
+    clearConfigApiKey: async () => {
+      const config = vscode.workspace.getConfiguration('bugscope');
+      await config.update('ai.apiKey', undefined, vscode.ConfigurationTarget.Global);
     }
   };
   const credentialStore = new CredentialStore(context.secrets, context.globalState, uiHost);
@@ -46,19 +50,6 @@ export function activate(context: vscode.ExtensionContext) {
       resultsProvider.setIdleState();
     })
   );
-
-  // 5. Ensure terminal shortcuts skip the shell so keys are intercepted directly by BugScope AI
-  try {
-    const termConfig = vscode.workspace.getConfiguration('terminal.integrated');
-    const skipList = termConfig.get<string[]>('commandsToSkipShell') || [];
-    if (!skipList.includes('bugscope.analyzeError')) {
-      termConfig.update(
-        'commandsToSkipShell',
-        [...skipList, 'bugscope.analyzeError'],
-        vscode.ConfigurationTarget.Global
-      );
-    }
-  } catch {}
 }
 
 export function deactivate() {

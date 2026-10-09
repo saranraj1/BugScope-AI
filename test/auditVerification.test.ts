@@ -1,10 +1,15 @@
 import * as assert from 'assert';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import { ErrorParser } from '../src/analysis/errorParser';
 import { WorkspaceSecurity } from '../src/utils/workspaceSecurity';
 import { DependencyAnalyzer } from '../src/analysis/dependencyAnalyzer';
 import { ImpactScorer, CandidateContext } from '../src/analysis/impactScorer';
 import { SourceResolver } from '../src/analysis/sourceResolver';
+import { AiAdapter } from '../src/ai/aiAdapter';
+
+const validateWebviewAction = WorkspaceSecurity.validateWebviewAction;
 
 describe('Audit Regression & Edge Case Verification', () => {
   const projectRoot = path.join(__dirname, 'fixtures', 'sample-project');
@@ -105,5 +110,133 @@ describe('Audit Regression & Edge Case Verification', () => {
     assert.strictEqual(ranked[0].score, 0);
     assert.strictEqual(ranked[0].signals.stackProximity, 0);
     assert.strictEqual(ranked[0].signals.dependencyAdjacency, 0);
+  });
+
+  it('Audit C.2: Workspace sibling-prefix containment attack rejection', () => {
+    const fakeWorkspace = path.resolve('/app/workspace');
+    const fakeSibling = path.resolve('/app/workspace-sibling/exploit.ts');
+    assert.strictEqual(WorkspaceSecurity.isPathWithinWorkspace(fakeSibling, fakeWorkspace), false);
+
+    const normalInside = path.resolve('/app/workspace/src/valid.ts');
+    assert.strictEqual(WorkspaceSecurity.isPathWithinWorkspace(normalInside, fakeWorkspace), true);
+  });
+
+  it('Audit C.3: Webview message validation rejects malformed and malicious messages', () => {
+    assert.strictEqual(validateWebviewAction(null), null);
+    assert.strictEqual(validateWebviewAction(undefined), null);
+    assert.strictEqual(validateWebviewAction({}), null);
+    assert.strictEqual(validateWebviewAction({ action: 'MALICIOUS_EXEC' }), null);
+    assert.strictEqual(validateWebviewAction({ action: 'OPEN_LOCATION', file: '' }), null);
+    assert.strictEqual(validateWebviewAction({ action: 'OPEN_LOCATION', file: 123 }), null);
+
+    const validOpen = validateWebviewAction({
+      action: 'OPEN_LOCATION',
+      file: 'src/checkout.ts',
+      line: 42,
+      column: 10
+    });
+    assert.ok(validOpen);
+    assert.strictEqual(validOpen?.action, 'OPEN_LOCATION');
+    assert.strictEqual(validOpen?.file, 'src/checkout.ts');
+    assert.strictEqual(validOpen?.line, 42);
+    assert.strictEqual(validOpen?.column, 10);
+
+    const sanitizedLine = validateWebviewAction({
+      action: 'OPEN_LOCATION',
+      file: 'src/checkout.ts',
+      line: -5
+    });
+    assert.ok(sanitizedLine && sanitizedLine.action === 'OPEN_LOCATION');
+    assert.strictEqual(sanitizedLine.line, 1);
+  });
+
+  it('Audit D.2: AST import extraction ignores TypeScript comments and strings with import syntax', () => {
+    const analyzer = new DependencyAnalyzer(projectRoot);
+    const codeWithFakeImports = `
+      // import { fake } from './fakeCommentImport';
+      /*
+      import { evil } from './evilBlockComment';
+      */
+      const query = "import fakeFromStr from './fakeStringImport'";
+      import { calculateDiscount } from './checkout';
+    `;
+    const dummyFile = path.join(projectRoot, 'src', 'orderService.ts');
+    const imports = (analyzer as any).extractImportSpecifiers(codeWithFakeImports, dummyFile);
+
+    assert.ok(imports.some((p: string) => p.includes('checkout.ts')));
+    assert.strictEqual(imports.some((p: string) => p.includes('fakeCommentImport')), false);
+    assert.strictEqual(imports.some((p: string) => p.includes('evilBlockComment')), false);
+    assert.strictEqual(imports.some((p: string) => p.includes('fakeStringImport')), false);
+  });
+
+  it('Audit D.3: Global scan budget enforcement respects maxFilesScan and reports truncation', () => {
+    const analyzer = new DependencyAnalyzer(projectRoot, { maxFilesScan: 2 });
+    const graph = analyzer.buildGraph();
+
+    assert.strictEqual(analyzer.isTruncated, true);
+    assert.ok(graph.size <= 2);
+    assert.ok(analyzer.totalScannedFiles <= 2);
+  });
+
+  it('Audit D.4: Multi-root workspace analysis indexes files across multiple workspace folders', () => {
+    const pythonRoot = path.join(__dirname, 'fixtures', 'python-project');
+    const multiRootAnalyzer = new DependencyAnalyzer([projectRoot, pythonRoot]);
+    const graph = multiRootAnalyzer.buildGraph();
+
+    const hasTsFile = Array.from(graph.keys()).some((k) => k.includes('checkout.ts'));
+    const hasPyFile = Array.from(graph.keys()).some((k) => k.includes('checkout.py'));
+
+    assert.strictEqual(hasTsFile, true);
+    assert.strictEqual(hasPyFile, true);
+  });
+
+  it('Audit D.5: SourceResolver rejects ambiguous duplicate basenames without matching directory evidence', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bugscope-ambig-'));
+    try {
+      const dirA = path.join(tempDir, 'subA');
+      const dirB = path.join(tempDir, 'subB');
+      fs.mkdirSync(dirA, { recursive: true });
+      fs.mkdirSync(dirB, { recursive: true });
+
+      const fileA = path.join(dirA, 'handler.ts');
+      const fileB = path.join(dirB, 'handler.ts');
+      fs.writeFileSync(fileA, 'export const a = 1;');
+      fs.writeFileSync(fileB, 'export const b = 2;');
+
+      const resolver = new SourceResolver([tempDir]);
+
+      const ambiguousFrame = {
+        rawPath: 'handler.ts',
+        line: 1,
+        rawFrame: 'at handler.ts:1:1'
+      };
+      const resAmbig = resolver.resolveSingleFrame(ambiguousFrame);
+      assert.ok(resAmbig);
+      assert.strictEqual(resAmbig.exists, false, 'Bare ambiguous basename must not arbitrarily pick one file');
+
+      const specificFrame = {
+        rawPath: 'subB/handler.ts',
+        line: 1,
+        rawFrame: 'at subB/handler.ts:1:1'
+      };
+      const resSpecific = resolver.resolveSingleFrame(specificFrame);
+      assert.ok(resSpecific);
+      assert.strictEqual(resSpecific.exists, true);
+      assert.ok(resSpecific.fsPath && resSpecific.fsPath.includes('subB'));
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Audit F.1: AiAdapter rejects non-http/https protocol and fails safely', async () => {
+    const untrustedAi = new AiAdapter({
+      enabled: true,
+      endpoint: 'ftp://malicious.internal.network/v1',
+      model: 'test-model'
+    });
+
+    const report: any = { errorSummary: { type: 'Error', message: 'test' }, candidates: [] };
+    const res = await untrustedAi.enrich(report);
+    assert.strictEqual(res, undefined);
   });
 });

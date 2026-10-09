@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import { AnalysisReport, WebviewMessage, WebviewAction } from '../models/analysisResult';
 import { ReportBuilder } from '../analysis/reportBuilder';
+import { WorkspaceSecurity } from '../utils/workspaceSecurity';
+
+export const validateWebviewAction = WorkspaceSecurity.validateWebviewAction;
 
 /**
  * ResultsViewProvider - Manages the native BugScope Webview in the sidebar.
@@ -35,7 +38,12 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
 
     // Handle incoming messages from the Webview script
-    webviewView.webview.onDidReceiveMessage(async (action: WebviewAction) => {
+    webviewView.webview.onDidReceiveMessage(async (rawMsg: unknown) => {
+      const action = validateWebviewAction(rawMsg);
+      if (!action) {
+        return; // Reject invalid/untrusted webview message
+      }
+
       switch (action.action) {
         case 'OPEN_LOCATION':
           await this.openSourceLocation(action.file, action.line, action.column);
@@ -144,9 +152,9 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
 
       // Verify file is within permitted workspace boundaries
       const workspaceFolders = vscode.workspace.workspaceFolders || [];
-      const isAllowed = workspaceFolders.some((wf) =>
-        targetUri.fsPath.toLowerCase().startsWith(wf.uri.fsPath.toLowerCase())
-      ) || workspaceFolders.length === 0;
+      const isAllowed = workspaceFolders.length > 0
+        ? workspaceFolders.some((wf) => WorkspaceSecurity.isPathWithinWorkspace(targetUri.fsPath, wf.uri.fsPath))
+        : true;
 
       if (!isAllowed) {
         vscode.window.showWarningMessage('BugScope AI: Access denied — target path is outside workspace boundaries.');
@@ -183,12 +191,13 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
    */
   private getHtmlForWebview(webview: vscode.Webview): string {
     const cspSource = webview.cspSource;
+    const nonce = this.getNonce();
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BugScope AI</title>
   <style>
@@ -496,7 +505,7 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
 <body>
   <div id="app" class="container"></div>
 
-  <script>
+  <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const app = document.getElementById('app');
 
@@ -753,7 +762,7 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
         </div>
 
         <div class="card">
-          <div class="card-title">Targeted Test Coverage</div>
+          <div class="card-title">Related Test Candidates</div>
           <div style="display:flex; flex-direction:column; gap:8px;">
             \${testsHtml}
           </div>
@@ -825,5 +834,14 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
   </script>
 </body>
 </html>`;
+  }
+
+  private getNonce(): string {
+    let text = '';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < 32; i++) {
+      text += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return text;
   }
 }
