@@ -1,0 +1,8 @@
+.reentry/
+*.db
+.DS_Store
+Thumbs.db
+node_modules/
+dist/
+out/
+*.vsix

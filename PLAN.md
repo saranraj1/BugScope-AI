@@ -1,188 +1,261 @@
-
-The key requirement is now clear: BugScope AI must feel like a natural part of VS Code, not a web app squeezed into an extension.
-
 # BugScope AI — NEXUS'26 Hackathon Master Plan
 
-# BugScope AI
+> **VS Code-Native · Local-First · Evidence-Driven**  
+> *Understand an error, trace its potential impact, and prioritise what to investigate next — without leaving the editor.*
 
-VS Code-native · Local-first · Evidence-driven
+---
 
-Understand an error, trace its potential impact, and prioritise what to investigate next—without leaving the editor.
+<div align="center">
 
-## 24 hours
+| ⏱️ Development Budget | 🔌 Core Offline Capability | 🎯 Target Platform |
+| :---: | :---: | :---: |
+| **Strict 24-Hour Sprint** | **Zero API Key Needed (Local-First)** | **VS Code Extension (TypeScript)** |
 
-Strict development budget
+</div>
 
-## Offline-capable
+---
 
-No API key needed for core analysis
+## 1. Locked User Experience (The Core Loop)
 
-## 1. Lock the exact user experience
+> [!IMPORTANT]
+> This interaction is the first vertical slice we implement and test — not a superficial UI layer deferred until the end.
 
-Your requested interaction is the first thing we must implement and test—not a feature we leave until the interface phase.
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ [1. Select Error] ──▶ [2. Right-Click] ──▶ [3. Trigger Panel] ──▶ [4. Inspect]  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
 
-Step 1 — Select the error text
+### Step 1 — Select the Error Text
+The developer highlights a stack trace or error message inside any supported VS Code editor (e.g., a `.log`, `.ts`, `.js`, or output buffer):
 
-The developer selects a stack trace or error message in a supported VS Code editor, such as a log file.
+```text
+TypeError: Cannot read properties of undefined (reading 'rate')
+    at calculateDiscount (checkout.ts:42:18)
+    at processOrder (orderService.ts:115:9)
+    at Object.handleCheckout [as handler] (routes/cart.ts:88:24)
+```
 
-TypeError: Cannot read properties of undefined
+### Step 2 — Right-Click the Selection
+The editor context menu displays the dedicated BugScope command:
+```
+┌──────────────────────────────────────────────┐
+│  Cut                                         │
+│  Copy                                        │
+│  ──────────────────────────────────────────  │
+│  🔍 BugScope AI: Analyse Error Impact        │  ◀── Registered Context Action
+│  ──────────────────────────────────────────  │
+│  Command Palette...                          │
+└──────────────────────────────────────────────┘
+```
 
-at calculateDiscount (checkout.ts:42)
+### Step 3 — Click BugScope AI
+A dedicated **BugScope AI** view immediately activates and focuses in the VS Code Primary Sidebar, displaying an animated loading state while the local engine parses and maps the workspace.
 
-Step 2 — Right-click the selection
+### Step 4 — Inspect Evidence & Navigate
+The results panel renders:
+- **Error Breakdown:** Parsed exception type, message, and target frame.
+- **Candidate Root Causes:** Evidence-ranked modules with confidence markers.
+- **Dependency Blast Radius:** Direct callers, imports, and related components.
+- **Recommended Tests:** Discovered test suites covering the impacted files.
+- **Interactive Links:** Clicking any file/symbol immediately jumps to that exact line in the editor.
 
-The editor context menu shows a command named exactly:
+---
 
-BugScope AI: Analyse Error Impact
+> [!NOTE]
+> ### Critical VS Code Scope Boundary: Editor Selection vs. Terminal
+> - **In Scope (MVP):** Selected text in any editor tab, stack traces pasted into scratch/log files, and active `TextEditor` selections.
+> - **Out of Scope for First Slice:** Direct text selection inside the integrated terminal (`Terminal.selection` lacks synchronous, reliable `TextEditor` parity across platforms).
+> 
+> *Making this explicit upfront protects us from debugging VS Code terminal API quirks at hour 20.*
 
-Step 3 — Click BugScope AI
+---
 
-A dedicated BugScope AI view opens in the VS Code sidebar immediately. It shows a loading state while analysis runs.
+## 2. Realistic 24-Hour Scope Matrix
 
-Step 4 — Inspect the findings
+| Tier | Focus Area | Deliverables |
+| :--- | :--- | :--- |
+| **P0 (Must Work)** | **Context Menu** | Command registered with `editorHasSelection` predicate |
+| | **Error Parsing** | Deterministic extraction of exception, message, frames, file paths & line numbers |
+| | **Workspace Resolver** | Map stack frames to actual workspace file paths with boundaries |
+| | **Dependency Mapping** | Parse AST imports/exports to determine module adjacency |
+| | **Impact Ranking** | Transparent, deterministic scoring formula with explicit evidence |
+| | **Sidebar View** | Native `WebviewView` panel with clickable file links |
+| | **Offline Baseline** | 100% operational with AI disabled, zero internet, and no API keys |
+| **P1 (High Value)** | **Test Discovery** | Correlate candidate files to existing unit/integration tests |
+| | **Test Guidance** | Recommend specific test cases to execute based on error nature |
+| | **Scoring Rationale** | Detailed breakdown of why each module was ranked high/low |
+| | **State Management** | Polished empty, loading, error, and partial-analysis states |
+| | **Optional AI Enrichment** | Non-blocking LLM adapter (Local Ollama / API) to add hypotheses |
+| **P2 (Out of Scope)** | **Non-Goals** | ❌ Auto-patching / modifying files on disk<br/>❌ Full cross-language call graphs<br/>❌ Training custom ML models<br/>❌ Large historical git/bug mining<br/>❌ Complex multi-agent choreography<br/>❌ External web apps, databases, or cloud accounts |
 
-The panel shows the error summary, evidence-backed candidate causes, potentially affected files, and recommended tests. Clicking a reference opens the corresponding source location.
+> [!TIP]
+> **Scope Golden Rule:** If a feature does not directly improve the *Select ➔ Analyse ➔ Inspect Evidence* flow, it does not get built during this hackathon.
 
-### One important VS Code detail
+---
 
-The context-menu item can be registered for selected text in an editor. That is our guaranteed MVP workflow.
+## 3. Architecture: Clean, Decoupled & Local-First
 
-Selecting text directly in the integrated terminal is different from selecting text in an editor. Terminal selection does not reliably behave like an ordinary `TextEditor` selection through the same API. So we should not promise terminal-selection support in the first version.
+The system cleanly separates the **VS Code Extension Host UI**, the **Deterministic Local Analysis Pipeline**, and the **Optional Enrichment Layer**.
 
-Instead, initially support:
+```mermaid
+flowchart TD
+    subgraph UI ["VS Code UI Layer"]
+        Editor["📄 VS Code Editor<br/>(Source / Log file)"]
+        Selection["🖱️ Selected Error Text"]
+        Menu["📋 Context Menu Action<br/>'BugScope AI: Analyse Error Impact'"]
+        CmdHandler["⚡ Command Handler<br/>(bugscope.analyzeError)"]
+        ResultsView["📊 BugScope Results Panel<br/>(Sidebar WebviewView)"]
 
-- Selected error text in an editor.
-- Stack traces pasted into a supported editor or log file.
-- A later enhancement for terminal-specific workflows, if time permits.
+        Editor -->|"Developer highlights text"| Selection
+        Selection -->|"Right click"| Menu
+        Menu -->|"Executes"| CmdHandler
+        CmdHandler -->|"Reveal & display loading"| ResultsView
+    end
 
-This is a deliberate scope decision, not a limitation we should discover at hour 20.
+    subgraph Core ["Local Analysis Engine (100% Offline)"]
+        ErrorParser["🔍 Error & Stack Parser<br/>(Regex / Frame Extraction)"]
+        SourceResolver["📂 Workspace Source Resolver<br/>(Path validation & bounds)"]
+        LocalEngine["⚙️ Analysis Coordinator"]
 
-## 2. The scope we will actually build
+        CmdHandler -->|"Raw text"| ErrorParser
+        ErrorParser -->|"Parsed stack frames"| SourceResolver
+        SourceResolver -->|"Resolved file references"| LocalEngine
 
-The problem statement asks for bug impact prediction using bug descriptions, code modules, dependencies, previous bugs, and user impact. We can credibly implement the first four core dimensions of an MVP, while treating historical bug learning and production user-impact estimation as future work.
+        subgraph Pipeline ["Evidence Pipeline"]
+            SymbolInspection["🔬 Symbol & Syntax Inspection<br/>(AST / Tokens)"]
+            DepAnalysis["🕸️ Dependency Mapper<br/>(Imports / Call graph)"]
+            TestDiscovery["🧪 Test Suite Discovery<br/>(*.test.ts / *.spec.ts)"]
+        end
 
-### P0 — Must work
+        LocalEngine --> SymbolInspection
+        LocalEngine --> DepAnalysis
+        LocalEngine --> TestDiscovery
 
-Context-menu integration
+        SymbolInspection --> EvidenceCollector["📦 Evidence Collector"]
+        DepAnalysis --> EvidenceCollector
+        TestDiscovery --> EvidenceCollector
 
-Selecting text reveals the BugScope AI command.
+        EvidenceCollector --> ImpactRanker["📈 Impact Scoring Engine<br/>R(f) = wₛS(f) + w_d D(f) + wₘM(f) + w_t T(f)"]
+        ImpactRanker --> LocalReport["📑 Local Baseline Report<br/>(Verified Facts & Evidence)"]
+    end
 
-Error parsing
+    subgraph AI ["Optional AI Enrichment"]
+        LocalReport --> CheckAI{"AI Enabled & Key Set?"}
+        CheckAI -->|"No"| RenderLocal["Use Baseline Report"]
+        CheckAI -->|"Yes"| AIAdapter["🤖 AI Adapter<br/>(Local Ollama or External API)"]
+        AIAdapter --> ValidateEnrichment["🛡️ Schema Validator & Sanitizer<br/>(Hypothesis classification)"]
+        ValidateEnrichment --> CombinedReport["📑 Enriched Report"]
+    end
 
-Extract the exception type, message, stack frames, file paths and line numbers where available.
+    RenderLocal -->|"Render findings & score"| ResultsView
+    CombinedReport -->|"Render findings & score"| ResultsView
+    ResultsView -.->|"Clickable references jump to line"| Editor
 
-Workspace-aware analysis
+    %% Styling
+    classDef ui fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc;
+    classDef core fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#f8fafc;
+    classDef pipe fill:#2e1065,stroke:#c084fc,stroke-width:1.5px,color:#f8fafc;
+    classDef ai fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#f8fafc;
+    classDef decision fill:#312e81,stroke:#a78bfa,stroke-width:2px,color:#f8fafc;
 
-Resolve stack-trace references to real project files and inspect relevant code.
+    class Editor,Selection,Menu,CmdHandler,ResultsView ui;
+    class ErrorParser,SourceResolver,LocalEngine,EvidenceCollector,ImpactRanker,LocalReport,RenderLocal core;
+    class SymbolInspection,DepAnalysis,TestDiscovery pipe;
+    class AIAdapter,ValidateEnrichment,CombinedReport ai;
+    class CheckAI decision;
+```
 
-Dependency mapping
+### Technology Decisions
 
-Identify supported imports and rank related modules for investigation.
+| Architecture Layer | Decision / Tool | Rationale |
+| :--- | :--- | :--- |
+| **Extension Runtime** | TypeScript + VS Code API | Standard, robust ecosystem with direct IDE lifecycle access |
+| **Context Menu** | `contributes.menus` (`editor/context`) | Native right-click integration via declarative manifest |
+| **Results View** | Sidebar `WebviewView` | Stays in peripheral vision without obscuring code editing space |
+| **Error Parser** | Deterministic Regex & Frame Grammar | Fast (<5ms), predictable, handles partial and multiline traces |
+| **Target Language** | TypeScript / JavaScript | Rich native compiler API (`typescript` package) for AST & imports |
+| **Dependency Mapper**| TypeScript Compiler AST & Module Specifiers | Zero native binaries required; parses local file trees directly |
+| **Ranking Algorithm** | Linear Multi-Factor Weighted Scoring | 100% explainable, deterministic, zero black-box confusion |
+| **Storage & State** | In-Memory Model Cache | No database overhead needed for 24h hackathon scope |
+| **AI Enrichment** | Isolated Adapter (Ollama / Provider) | Local analysis works independently if network or API drops |
+| **Automated Testing** | VS Code Extension Host Tests + Fixtures | Guarantees extension activates and runs on real codebases |
 
-Impact scoring
-
-Generate a transparent, explainable ranking instead of an unsupported probability.
-
-Results panel
-
-Display the report in VS Code with clickable source references.
-
-Local-first fallback
-
-Core analysis works with AI disabled, no API key and no network connection.
-
-### P1 — Build after P0 works
-
-- Find existing tests related to the candidate files.
-- Recommend test cases based on the error and available code evidence.
-- Show why each module was ranked.
-- Provide useful empty, error, and loading states.
-- Optionally enrich the report using a local model or external API.
-
-### P2 — Explicitly out of scope for the 24-hour MVP
-
-- Automatic bug fixing or file modification.
-- A complete call graph for every language.
-- Training a new machine-learning model.
-- Historical bug prediction requiring a large dataset.
-- Multi-agent orchestration.
-- Cloud infrastructure, accounts, or a separate web application.
-- Multiple AI providers and complicated configuration.
-- Claims that BugScope can reliably identify the exact root cause of every bug.
-
-Scope rule: If a feature does not improve the select → analyse → inspect evidence workflow, it is not a priority for this hackathon.
-
-## 3. Architecture: keep the moving parts small
-
-\#chatgpt-mermaid-\_r_qh\_{font-family:-apple-system-body,ui-sans-serif,-apple-system,system-ui,"Segoe UI",Helvetica,"Apple Color Emoji",Arial,sans-serif,"Segoe UI Emoji","Segoe UI Symbol";font-size:16px;fill:rgb(237, 237, 237);}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#chatgpt-mermaid-\_r_qh\_ .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#chatgpt-mermaid-\_r_qh\_ .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#chatgpt-mermaid-\_r_qh\_ .error-icon{fill:rgb(48, 48, 48);}#chatgpt-mermaid-\_r_qh\_ .error-text{fill:rgb(237, 237, 237);stroke:rgb(237, 237, 237);}#chatgpt-mermaid-\_r_qh\_ .edge-thickness-normal{stroke-width:1px;}#chatgpt-mermaid-\_r_qh\_ .edge-thickness-thick{stroke-width:3.5px;}#chatgpt-mermaid-\_r_qh\_ .edge-pattern-solid{stroke-dasharray:0;}#chatgpt-mermaid-\_r_qh\_ .edge-thickness-invisible{stroke-width:0;fill:none;}#chatgpt-mermaid-\_r_qh\_ .edge-pattern-dashed{stroke-dasharray:3;}#chatgpt-mermaid-\_r_qh\_ .edge-pattern-dotted{stroke-dasharray:2;}#chatgpt-mermaid-\_r_qh\_ .marker{fill:rgb(175, 175, 175);stroke:rgb(175, 175, 175);}#chatgpt-mermaid-\_r_qh\_ .marker.cross{stroke:rgb(175, 175, 175);}#chatgpt-mermaid-\_r_qh\_ svg{font-family:-apple-system-body,ui-sans-serif,-apple-system,system-ui,"Segoe UI",Helvetica,"Apple Color Emoji",Arial,sans-serif,"Segoe UI Emoji","Segoe UI Symbol";font-size:16px;}#chatgpt-mermaid-\_r_qh\_ p{margin:0;}#chatgpt-mermaid-\_r_qh\_ .label{font-family:-apple-system-body,ui-sans-serif,-apple-system,system-ui,"Segoe UI",Helvetica,"Apple Color Emoji",Arial,sans-serif,"Segoe UI Emoji","Segoe UI Symbol";color:rgb(237, 237, 237);}#chatgpt-mermaid-\_r_qh\_ .cluster-label text{fill:rgb(237, 237, 237);}#chatgpt-mermaid-\_r_qh\_ .cluster-label span{color:rgb(237, 237, 237);}#chatgpt-mermaid-\_r_qh\_ .cluster-label span p{background-color:transparent;}#chatgpt-mermaid-\_r_qh\_ .label text,#chatgpt-mermaid-\_r_qh\_ span{fill:rgb(237, 237, 237);color:rgb(237, 237, 237);}#chatgpt-mermaid-\_r_qh\_ .node rect,#chatgpt-mermaid-\_r_qh\_ .node circle,#chatgpt-mermaid-\_r_qh\_ .node ellipse,#chatgpt-mermaid-\_r_qh\_ .node polygon,#chatgpt-mermaid-\_r_qh\_ .node path{fill:rgb(9, 23, 44);stroke:rgb(31, 78, 148);stroke-width:1px;}#chatgpt-mermaid-\_r_qh\_ .rough-node .label text,#chatgpt-mermaid-\_r_qh\_ .node .label text,#chatgpt-mermaid-\_r_qh\_ .image-shape .label,#chatgpt-mermaid-\_r_qh\_ .icon-shape .label{text-anchor:middle;}#chatgpt-mermaid-\_r_qh\_ .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#chatgpt-mermaid-\_r_qh\_ .rough-node .label,#chatgpt-mermaid-\_r_qh\_ .node .label,#chatgpt-mermaid-\_r_qh\_ .image-shape .label,#chatgpt-mermaid-\_r_qh\_ .icon-shape .label{text-align:center;}#chatgpt-mermaid-\_r_qh\_ .node.clickable{cursor:pointer;}#chatgpt-mermaid-\_r_qh\_ .root .anchor path{fill:rgb(175, 175, 175)!important;stroke-width:0;stroke:rgb(175, 175, 175);}#chatgpt-mermaid-\_r_qh\_ .arrowheadPath{fill:rgb(175, 175, 175);}#chatgpt-mermaid-\_r_qh\_ .edgePath .path{stroke:rgb(175, 175, 175);stroke-width:1px;}#chatgpt-mermaid-\_r_qh\_ .flowchart-link{stroke:rgb(175, 175, 175);fill:none;}#chatgpt-mermaid-\_r_qh\_ .edgeLabel{background-color:rgb(0, 0, 0);text-align:center;}#chatgpt-mermaid-\_r_qh\_ .edgeLabel p{background-color:rgb(0, 0, 0);}#chatgpt-mermaid-\_r_qh\_ .edgeLabel rect{opacity:0.5;background-color:rgb(0, 0, 0);fill:rgb(0, 0, 0);}#chatgpt-mermaid-\_r_qh\_ .labelBkg{background-color:rgba(0, 0, 0, 0.5);}#chatgpt-mermaid-\_r_qh\_ .cluster rect{fill:rgb(48, 48, 48);stroke:rgba(255, 255, 255, 0.15);stroke-width:1px;}#chatgpt-mermaid-\_r_qh\_ .cluster text{fill:rgb(237, 237, 237);}#chatgpt-mermaid-\_r_qh\_ .cluster span{color:rgb(237, 237, 237);}#chatgpt-mermaid-\_r_qh\_ div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system-body,ui-sans-serif,-apple-system,system-ui,"Segoe UI",Helvetica,"Apple Color Emoji",Arial,sans-serif,"Segoe UI Emoji","Segoe UI Symbol";font-size:12px;background:rgb(48, 48, 48);border:1px solid rgba(255, 255, 255, 0.15);border-radius:2px;pointer-events:none;z-index:100;}#chatgpt-mermaid-\_r_qh\_ .flowchartTitleText{text-anchor:middle;font-size:18px;fill:rgb(237, 237, 237);}#chatgpt-mermaid-\_r_qh\_ rect.text{fill:none;stroke-width:0;}#chatgpt-mermaid-\_r_qh\_ .icon-shape,#chatgpt-mermaid-\_r_qh\_ .image-shape{background-color:rgb(0, 0, 0);text-align:center;}#chatgpt-mermaid-\_r_qh\_ .icon-shape p,#chatgpt-mermaid-\_r_qh\_ .image-shape p{background-color:rgb(0, 0, 0);padding:2px;}#chatgpt-mermaid-\_r_qh\_ .icon-shape .label rect,#chatgpt-mermaid-\_r_qh\_ .image-shape .label rect{opacity:0.5;background-color:rgb(0, 0, 0);fill:rgb(0, 0, 0);}#chatgpt-mermaid-\_r_qh\_ .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#chatgpt-mermaid-\_r_qh\_ .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#chatgpt-mermaid-\_r_qh\_ .node .neo-node{stroke:rgb(31, 78, 148);}#chatgpt-mermaid-\_r_qh\_ [data-look="neo"].node rect,#chatgpt-mermaid-\_r_qh\_ [data-look="neo"].cluster rect,#chatgpt-mermaid-\_r_qh\_ [data-look="neo"].node polygon{stroke:url(#chatgpt-mermaid-\_r_qh\_-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#chatgpt-mermaid-\_r_qh\_ [data-look="neo"].swimlane.cluster rect{filter:none;}#chatgpt-mermaid-\_r_qh\_ [data-look="neo"].node path{stroke:url(#chatgpt-mermaid-\_r_qh\_-gradient);stroke-width:1px;}#chatgpt-mermaid-\_r_qh\_ [data-look="neo"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#chatgpt-mermaid-\_r_qh\_ [data-look="neo"].node .neo-line path{stroke:rgb(31, 78, 148);filter:none;}#chatgpt-mermaid-\_r_qh\_ [data-look="neo"].node circle{stroke:url(#chatgpt-mermaid-\_r_qh\_-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#chatgpt-mermaid-\_r_qh\_ [data-look="neo"].node circle .state-start{fill:#000000;}#chatgpt-mermaid-\_r_qh\_ [data-look="neo"].icon-shape .icon{fill:url(#chatgpt-mermaid-\_r_qh\_-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#chatgpt-mermaid-\_r_qh\_ [data-look="neo"].icon-shape .icon-neo path{stroke:url(#chatgpt-mermaid-\_r_qh\_-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#chatgpt-mermaid-\_r_qh\_ .node text{font-size:14px;font-weight:600;letter-spacing:normal;fill:rgb(153, 206, 255);}#chatgpt-mermaid-\_r_qh\_ .edgeLabels text{font-size:13px;font-weight:600;letter-spacing:-0.08px;fill:rgb(153, 206, 255);}#chatgpt-mermaid-\_r_qh\_ .node tspan[font-weight="normal"],#chatgpt-mermaid-\_r_qh\_ .edgeLabels tspan[font-weight="normal"]{font-weight:600;}#chatgpt-mermaid-\_r_qh\_ .edgeLabel .label rect{opacity:1;rx:13px;ry:13px;fill:rgb(0, 14, 26);stroke:rgb(26, 62, 95);stroke-width:1px;}#chatgpt-mermaid-\_r_qh\_ .node rect,#chatgpt-mermaid-\_r_qh\_ .node circle,#chatgpt-mermaid-\_r_qh\_ .node ellipse,#chatgpt-mermaid-\_r_qh\_ .node polygon,#chatgpt-mermaid-\_r_qh\_ .node path{fill:rgb(0, 40, 77);stroke:rgba(255, 255, 255, 0.1);stroke-width:1px;}#chatgpt-mermaid-\_r_qh\_ .node rect{rx:16px;ry:16px;}#chatgpt-mermaid-\_r_qh\_ .node.mermaid-decision .label-container{fill:rgb(0, 14, 26);stroke:rgb(26, 62, 95);stroke-dasharray:2,2;}#chatgpt-mermaid-\_r_qh\_ .edgePaths .flowchart-link{stroke:rgb(175, 175, 175);stroke-width:1px;stroke-linecap:round;stroke-linejoin:round;}#chatgpt-mermaid-\_r_qh\_ .marker{fill:rgb(175, 175, 175);stroke:rgb(175, 175, 175);}#chatgpt-mermaid-\_r_qh\_ :root{--mermaid-font-family:-apple-system-body,ui-sans-serif,-apple-system,system-ui,"Segoe UI",Helvetica,"Apple Color Emoji",Arial,sans-serif,"Segoe UI Emoji","Segoe UI Symbol";}VS Code EditorSelected Error TextEditor Context MenuBugScope AICommand HandlerOpen / Reveal BugScopeResults ViewError ParserWorkspace Source ResolverLocal Analysis EngineCode & Symbol InspectionDependency AnalysisTest DiscoveryEvidence CollectorImpact Ranking & BaselineReportOptional AI enabled?Local ReportOptional AI EnrichmentValidate EnrichmentCombined ReportBugScope Results ViewClickable Source ReferencesNoYes
-
-### Technology choices
-
-| Layer               | Decision                                                                 |
-| ------------------- | ------------------------------------------------------------------------ |
-| Extension runtime   | TypeScript + VS Code Extension API                                       |
-| Context menu        | `contributes.menus` with `editor/context` and a selection condition      |
-| Results panel       | Webview View registered in a dedicated BugScope sidebar container        |
-| Error parsing       | Deterministic TypeScript parsers and targeted rules                      |
-| Initial language    | TypeScript/JavaScript, unless your team is materially stronger in Python |
-| Dependency analysis | TypeScript compiler API                                                  |
-| Ranking             | Rule-based scoring with explicit evidence                                |
-| Storage             | None initially; keep the analysis in memory                              |
-| AI                  | Optional adapter, added only after local analysis passes tests           |
-| Testing             | VS Code Extension Host tests plus controlled fixture repositories        |
-
-A sidebar `WebviewView` is a good fit for the interaction you described. Register the view and container in the extension manifest; when the context-menu command runs, reveal the BugScope view and populate it with the analysis result.
-
-Keep the command handler separate from the analysis engine. The context menu should not contain analysis logic, and the analysis engine should not depend on the UI.
-
-### Suggested project structure
+### Repository Structure
 
 ```
 bugscope-ai/
 ├── src/
-│   ├── extension.ts
+│   ├── extension.ts                    # Extension activation & command wiring
 │   ├── commands/
-│   │   └── analyzeError.ts
+│   │   └── analyzeError.ts             # Captures selection, triggers pipeline
 │   ├── analysis/
-│   │   ├── errorParser.ts
-│   │   ├── sourceResolver.ts
-│   │   ├── symbolAnalyzer.ts
-│   │   ├── dependencyAnalyzer.ts
-│   │   ├── testDiscovery.ts
-│   │   ├── impactScorer.ts
-│   │   └── reportBuilder.ts
+│   │   ├── errorParser.ts              # Deterministic regex & stack parser
+│   │   ├── sourceResolver.ts           # Workspace file path normalization
+│   │   ├── symbolAnalyzer.ts           # AST symbol & line context extraction
+│   │   ├── dependencyAnalyzer.ts       # Module import/export graph builder
+│   │   ├── testDiscovery.ts            # Test suite correlation matcher
+│   │   ├── impactScorer.ts             # Multi-factor ranking engine
+│   │   └── reportBuilder.ts            # Formats findings into schema
 │   ├── providers/
-│   │   └── resultsViewProvider.ts
+│   │   └── resultsViewProvider.ts      # WebviewView sidebar provider & IPC
 │   ├── ai/
-│   │   └── aiAdapter.ts
+│   │   └── aiAdapter.ts                # Optional fallback LLM provider
 │   ├── models/
-│   │   └── analysisResult.ts
+│   │   └── analysisResult.ts           # Shared TypeScript interfaces & types
 │   └── utils/
-│       └── workspaceSecurity.ts
+│       └── workspaceSecurity.ts        # Path traversal guard & secret filter
 ├── test/
-│   ├── fixtures/
-│   ├── analysis.test.ts
-│   └── extension.test.ts
-├── package.json
+│   ├── fixtures/                       # Sample stack traces & mock workspaces
+│   ├── analysis.test.ts                # Fast unit tests for parsing & ranking
+│   └── extension.test.ts               # VS Code extension integration tests
+├── package.json                        # Manifest (commands, menus, views)
 ├── tsconfig.json
 └── README.md
 ```
 
-Don't create every module as an empty file at the beginning. Add each module when its phase starts.
+---
 
-## 4. The exact context-menu implementation requirement
+## 4. Context Menu & Interaction Specification
 
-This is the first vertical slice to build.
+### Manifest Configuration (`package.json`)
 
-In `package.json`, the conceptual configuration is:
-
-```
+```json
 {
+  "name": "bugscope-ai",
+  "displayName": "BugScope AI",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "activationEvents": [
+    "onCommand:bugscope.analyzeError"
+  ],
+  "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "bugscope-sidebar",
+          "title": "BugScope AI",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "bugscope-sidebar": [
+        {
+          "type": "webview",
+          "id": "bugscope.resultsView",
+          "name": "Impact Analysis"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "bugscope.analyzeError",
-        "title": "BugScope AI: Analyse Error Impact"
+        "title": "BugScope AI: Analyse Error Impact",
+        "category": "BugScope"
       }
     ],
     "menus": {
@@ -190,7 +263,7 @@ In `package.json`, the conceptual configuration is:
         {
           "command": "bugscope.analyzeError",
           "when": "editorHasSelection",
-          "group": "navigation"
+          "group": "navigation@10"
         }
       ]
     }
@@ -198,256 +271,161 @@ In `package.json`, the conceptual configuration is:
 }
 ```
 
-This is the essential menu configuration, not a complete extension manifest. The finished manifest must also register the extension entry point and the results view.
-
-The command handler should:
-
-1. Read `vscode.window.activeTextEditor`.
-2. Check that a non-empty selection exists.
-3. Capture the selected text.
-4. Reveal the BugScope sidebar view.
-5. Show a loading state immediately.
-6. Run the analysis without blocking the extension host.
-7. Send the structured result to the view.
-8. Display a useful fallback report if analysis fails.
-
-Important implementation detail: Selecting an error does not guarantee that the text itself contains a complete stack trace. The parser must handle a plain error message, a partial stack trace, and a complete stack trace without crashing.
-
-Also, a code selection can be ordinary source code rather than an error. If the selected text doesn't resemble an error, show a helpful prompt instead of fabricating a diagnostic.
-
-# 5. The 24-hour execution schedule
-
-This is the actual sprint plan. Each phase has a deliverable and a go/no-go gate. We do not move forward merely because time has passed.
-
-## 00–02
-
-2 hours
-
-### Phase 1 — Extension foundation
-
-Critical path
-
-- Initialise TypeScript extension.
-- Register command and editor context-menu entry.
-- Register the BugScope sidebar view.
-- Read selected text and reveal the view.
-- Show the selected text in a placeholder result. Exit gate: Right-click selected text → BugScope AI → results view opens.
-
-## 02–05
-
-3 hours
-
-### Phase 2 — Error parsing
-
-- Parse error type, message and stack frames.
-- Extract file paths and line numbers.
-- Resolve workspace-relative and absolute paths safely.
-- Handle incomplete and malformed stack traces. Exit gate: A real fixture error resolves to the correct source location.
-
-## 05–09
-
-4 hours
-
-### Phase 3 — Local code analysis
-
-- Index supported source files with size and directory limits.
-- Inspect source around referenced lines.
-- Extract imports and resolvable dependencies.
-- Identify relevant symbols when possible.
-- Discover candidate test files. Exit gate: The engine produces a meaningful set of code references and dependency evidence.
-
-## 09–12
-
-3 hours
-
-### Phase 4 — Impact ranking
-
-- Rank direct stack-trace references first.
-- Incorporate dependency distance and symbol matches.
-- Incorporate relevant test evidence.
-- Generate explanations tied to evidence. Exit gate: The report ranks candidate files and explains why they are relevant.
-
-## 12–15
-
-3 hours
-
-### Phase 5 — Results interface
-
-- Render summary, likely causes, impacted candidates and tests.
-- Add clickable file references.
-- Add loading, empty, error and completed states.
-- Preserve the local baseline report. Exit gate: The user can complete the entire workflow within VS Code.
-
-## 15–19
-
-4 hours
-
-### Phase 6 — Testing and hardening
-
-- Test known stack traces and dependency relationships.
-- Test invalid selections and unresolved files.
-- Test workspace exclusions and large-project limits.
-- Verify unsaved editor content is handled appropriately.
-- Fix integration defects. Exit gate: All core scenarios pass, with known limitations documented.
-
-## 19–21
-
-2 hours
-
-### Phase 7 — Optional AI enhancement
-
-- Integrate one AI provider or supported local-model adapter.
-- Send only relevant, user-approved context.
-- Validate model output.
-- Test missing credentials and failed requests. Exit gate: AI enriches the local report without being required for success.
-
-  Skip this phase if the local baseline or tests are not stable.
-
-## 21–24
-
-3 hours
-
-### Phase 8 — Release and demo
-
-- Package the VSIX.
-- Install and test it in a clean VS Code profile.
-- Run the complete demonstration from scratch.
-- Fix only critical defects.
-- Finish README, installation instructions and demo backup. Exit gate: The extension installs, activates and completes the core workflow reliably.
-
-## 6. Design the impact engine carefully
-
-This is where we earn technical credibility. We need to distinguish observed facts from potential causes.
-
-A simple scoring model is sufficient for the MVP:
-
-\\[ R(f)=w_sS(f)+w_dD(f)+w_mM(f)+w_tT(f) \\]
-
-Where:
-
-- \\(S(f)\\): relevance to the observed stack trace.
-- \\(D(f)\\): relevance of discovered dependency relationships.
-- \\(M(f)\\): matching symbols or error-context signals.
-- \\(T(f)\\): relevance of discovered tests.
-
-The weights should be tuned against the sample repository rather than presented as scientifically validated.
-
-Use three evidence categories:
-
-Observed
-
-A stack trace explicitly references a file and line, or the analyser resolves an import.
-
-Inferred
-
-A related module is prioritised because of a dependency or symbol relationship.
-
-Unverified
-
-A possible root cause suggested by the error pattern but not confirmed by available evidence.
-
-This distinction will make the result panel more trustworthy than a generic AI-generated diagnosis.
-
-## 7. Risk register: what could sink the project?
-
-| Risk                                    | Mitigation                                                                                    |
-| --------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Context-menu item does not appear       | Test menu contribution in the first two hours; verify the selection condition and activation. |
-| Sidebar does not open or update         | Implement the view provider and message flow before the analysis engine.                      |
-| Stack traces use unexpected formats     | Support a small number of explicit formats and handle unknown formats gracefully.             |
-| Dependency analysis becomes too complex | Use file-level imports first; postpone full call-graph analysis.                              |
-| Workspace scanning is too slow          | Limit file types, directory traversal, file sizes and analysis depth.                         |
-| Model invents causes                    | Preserve evidence separately and label AI suggestions as hypotheses.                          |
-| External API fails                      | Display the local baseline report.                                                            |
-| Source code contains secrets            | Exclude secret/configuration files and minimise context sent remotely.                        |
-| Team integration happens too late       | Agree on data contracts early and integrate every phase.                                      |
-| Demo breaks on stage                    | Use a known fixture repository and test the packaged extension in a clean profile.            |
-
-### The three biggest traps
-
-1. Building an advanced graph before the command works.
-2. Supporting every programming language before one works reliably.
-3. Treating LLM output as proof of the root cause.
-
-Avoid those three and the project becomes much more manageable.
-
-## 8. Acceptance criteria for the final submission
-
-Use this checklist as your release gate.
-
-## Release readiness
-
-### 0/16
-
-Interaction
-
-Selected text reveals the BugScope AI context-menu command
-
-Clicking the command opens the BugScope results view
-
-Empty or irrelevant selections receive a useful response
-
-Analysis
-
-Supported stack traces produce structured error details
-
-Valid workspace file references resolve correctly
-
-Dependency relationships are supported by actual source evidence
-
-Candidate modules are ranked with explanations
-
-Relevant tests are discovered when present
-
-Reliability
-
-Core analysis works with AI disabled
-
-No network connection is required for the baseline
-
-Malformed inputs do not crash the extension
-
-Workspace scanning and path resolution are constrained safely
-
-Release
-
-VSIX installs in a clean VS Code profile
-
-Clickable references navigate to source
-
-A complete end-to-end demo succeeds
-
-README explains setup, scope and limitations
-
-Reset checklistCopy checklist
-
-## 9. The final demo: make the value obvious in 90 seconds
-
-1. 0–10 seconds: Show a real stack trace in a project open in VS Code.
-2. 10–20 seconds: Select the error, right-click, and click BugScope AI: Analyse Error Impact.
-3. 20–35 seconds: Show the parsed error and the exact source location.
-4. 35–55 seconds: Show the ranked candidate modules and the evidence supporting them.
-5. 55–70 seconds: Click a source reference and show the recommended tests.
-6. 70–90 seconds: Demonstrate that the local report works with AI disabled, and explain what the system can and cannot establish.
-
-The winning narrative is not "we integrated AI into VS Code." It is:
-
-> BugScope turns a selected error into a local, evidence-backed investigation of potentially affected code and the tests worth running first—without forcing developers to leave their workflow or configure an AI service.
-
-## 10. What I would do in the first 30 minutes
-
-Do these in order:
-
-1. Create the TypeScript extension scaffold.
-2. Register the `bugscope.analyzeError` command.
-3. Add the editor context-menu contribution with `editorHasSelection`.
-4. Register the BugScope sidebar view.
-5. Make the command capture selected text and reveal that view.
-6. Display the selected text in the view.
-7. Test the exact right-click interaction in the Extension Development Host.
-
-Do not start the dependency analyser until this vertical slice works.
-
-One final reality check: no plan can guarantee a hackathon win, and I wouldn't pretend otherwise. This plan maximises your chances by prioritising a dependable workflow, demonstrable engineering, and a tightly controlled scope.
-
-First milestone: make the exact interaction you described work within two hours. Then earn every additional feature. 🔥
+### Command Handler Lifecycle
+
+```
+1. vscode.window.activeTextEditor
+   │
+   ├─► Check non-empty selection ──(No)──► Show warning message: "Please select an error or stack trace"
+   │
+   ├─► (Yes) Capture text & active document URI
+   │
+   ├─► Reveal BugScope Webview View
+   │
+   ├─► Post Message { type: 'STATE_LOADING' } to Webview
+   │
+   ├─► Execute runAnalysis(selectedText, workspaceFolder) asynchronously
+   │
+   ├─► Post Message { type: 'STATE_SUCCESS', payload: result }
+   │
+   └─► On Catch: Post Message { type: 'STATE_ERROR', error: message }
+```
+
+> [!CAUTION]
+> **Defensive Input Handling:**
+> 1. If the developer selects random source code instead of an error, return a helpful hint ("No stack trace pattern recognized — try selecting the error banner or logs") rather than generating bogus diagnostics.
+> 2. Support **bare errors** (message without trace), **partial traces** (single line), and **full stack traces** gracefully.
+
+---
+
+## 5. 24-Hour Execution Schedule
+
+```
+  0h       2h           5h               9h             12h            15h               19h          21h       24h
+  ├────────┼────────────┼────────────────┼──────────────┼──────────────┼─────────────────┼────────────┼─────────┤
+  │ Phase 1│  Phase 2   │    Phase 3     │   Phase 4    │   Phase 5    │     Phase 6     │  Phase 7   │ Phase 8 │
+  │ Scaffold│ Parser     │ Code Analysis  │ Impact Score │ Webview UI   │ Test & Hardening│ Optional AI│ Pack&Demo
+```
+
+### Phase Breakdown & Strict Quality Gates
+
+| Phase & Hours | Core Focus | Deliverables | 🚪 Exit Gate (Go / No-Go) |
+| :--- | :--- | :--- | :--- |
+| **00h–02h** (2h)<br/>*Phase 1* | **Extension Foundation** | Scaffold TypeScript extension, register command, context-menu contribution, sidebar WebviewView. | Right-click selected text ➔ click command ➔ BugScope view opens with selected text shown. |
+| **02h–05h** (3h)<br/>*Phase 2* | **Error & Frame Parsing** | Regex extraction for JS/TS stack frames, exception types, file paths, and line numbers. | Real fixture stack trace correctly resolves to target file and line in workspace. |
+| **05h–09h** (4h)<br/>*Phase 3* | **Local Code Analysis** | Inspect source context, resolve AST `import`/`export` dependencies, and discover matching test files. | Engine outputs structured list of direct callers and importing modules. |
+| **09h–12h** (3h)<br/>*Phase 4* | **Impact Ranking Engine** | Multi-factor heuristic scorer weighting stack depth, dependency distance, and symbol matches. | Output report ranks candidate files with human-readable rationale explanations. |
+| **12h–15h** (3h)<br/>*Phase 5* | **Results Interface** | Sidebar Webview with error summary, impact list, test suggestions, and clickable `vscode://` links. | User clicks candidate file in sidebar ➔ editor jumps to exact file and line. |
+| **15h–19h** (4h)<br/>*Phase 6* | **Hardening & Edge Cases** | Boundary checks, ignoring `node_modules`, handling malformed traces, handling large workspaces. | 100% of integration test fixtures pass cleanly without IDE freeze. |
+| **19h–21h** (2h)<br/>*Phase 7* | **Optional AI Enrichment** | Optional adapter to summarize causes with LLM if user provides API key or Ollama. | AI enrichment augments report; disabling AI leaves 100% baseline intact. *(Skip if Phase 6 slips)* |
+| **21h–24h** (3h)<br/>*Phase 8* | **Packaging & Demo Prep** | Build `.vsix`, install into fresh VS Code profile, polish demo fixtures, rehearse 90s pitch. | End-to-end demo runs from scratch in a pristine environment with zero errors. |
+
+---
+
+## 6. The Impact Engine: Explainable & Evidence-Backed
+
+We build judge credibility through **evidence transparency**, not opaque claims of "AI psychic debugging".
+
+### Scoring Formulation
+
+$$R(f) = w_s \cdot S(f) + w_d \cdot D(f) + w_m \cdot M(f) + w_t \cdot T(f)$$
+
+Where for each candidate file $f$:
+- **$S(f)$ — Stack Trace Proximity:** Proximity weight based on stack frame depth ($1.0$ for point of throw, decreasing down the frame stack).
+- **$D(f)$ — Dependency Adjacency:** Direct importer/export relationship distance ($1.0$ for direct import, $0.5$ for second-order).
+- **$M(f)$ — Symbol Context Match:** Matching function/method/class names referenced in the error message or throw site.
+- **$T(f)$ — Test Suite Correlation:** Discovered test files that explicitly import or target the affected module.
+
+### Evidence Confidence Tiers
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  🟢 OBSERVED FACTS                                                              │
+│  Stack trace line explicitly references checkout.ts:42.                         │
+│  orderService.ts directly imports calculateDiscount from checkout.ts.           │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│  🟡 INFERRED IMPACT                                                             │
+│  cart.ts calls processOrder() without null checking the cart items array.       │
+│  Ranked candidate based on dependency distance (Depth = 1, Score = 0.78).       │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│  🔵 UNVERIFIED HYPOTHESIS                                                       │
+│  TypeError might indicate empty promo-code object payload.                      │
+│  (Suggested by AI enrichment adapter — not provable by static analysis alone).  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 7. Risk Register & Mitigations
+
+| Risk | Likelihood | Impact | Concrete Mitigation |
+| :--- | :---: | :---: | :--- |
+| **Context menu item fails to show** | Medium | High | Test declarative `package.json` menu contribution in Hour 1; verify `editorHasSelection` predicate. |
+| **Sidebar doesn't open / blank UI** | Medium | High | Implement Webview View provider with robust messaging (`postMessage`) before connecting analysis logic. |
+| **Stack traces in varied formats** | High | Medium | Implement standard V8/Node format first, with defensive regex fallback that extracts `(filename:line:col)`. |
+| **Dependency analysis freezes IDE** | High | High | Run analysis asynchronously; limit search depth to 2 hops; strictly exclude `node_modules`, `dist`, `.git`. |
+| **LLM produces hallucinations** | High | Medium | Enforce strict separation: deterministic facts in Section A; AI hypotheses clearly labeled in Section B. |
+| **External AI API drops / slow** | High | High | Local analysis is primary; AI is an asynchronous non-blocking decorator. Demo works completely offline. |
+| **Source files contain secrets** | Low | High | Never transmit full files externally; local analysis only parses AST imports and signatures. |
+| **Demo breaks on stage** | Medium | Critical | Prepare a locked, tested fixture repository and record a high-definition backup screen capture. |
+
+### The Three Deadly Traps to Avoid
+1. 🪤 **Building a full cross-language call graph before the right-click command works.**
+2. 🪤 **Trying to support 5 programming languages before TypeScript/JavaScript is rock solid.**
+3. 🪤 **Treating LLM hallucinated guesses as authoritative bug causes.**
+
+---
+
+## 8. Release Acceptance Checklist
+
+### 🕹️ User Interaction
+- [ ] Selecting text in editor reveals `BugScope AI: Analyse Error Impact` in context menu.
+- [ ] Clicking context menu action reveals BugScope sidebar view immediately.
+- [ ] Selecting non-error text displays a polite guidance prompt without crashing.
+- [ ] Empty or cleared selections disable or gracefully handle command execution.
+
+### ⚙️ Analysis Engine
+- [ ] Correctly parses exception type, message, and stack frames from standard traces.
+- [ ] Accurately resolves relative and absolute paths to real workspace files.
+- [ ] Identifies direct import/export relationships for candidate files.
+- [ ] Ranks impacted modules with clear numerical score and transparent justification.
+- [ ] Discovers associated test files (`*.test.ts`, `*.spec.ts`) in the workspace.
+
+### 🛡️ Reliability & Security
+- [ ] 100% of core analysis functions without an active internet connection or API key.
+- [ ] Malformed or partial stack traces do not cause unhandled exceptions or IDE lockups.
+- [ ] Directory scanning enforces workspace boundary containment and size limits.
+- [ ] Respects `.gitignore` and ignores `node_modules` / build artifacts.
+
+### 📦 Packaging & Presentation
+- [ ] Clicking any file or line reference in the Webview jumps directly to the editor location.
+- [ ] Extension packages into `.vsix` via `vsce package` with zero compiler errors.
+- [ ] Clean install and activation verified in a fresh VS Code profile.
+- [ ] README includes 1-minute quickstart, fixture walkthrough, and architecture diagram.
+
+---
+
+## 9. The 90-Second Winning Pitch Script
+
+| Time | Action | Voiceover / Pitch |
+| :--- | :--- | :--- |
+| **00s–15s** | Highlight real error in code editor | *"Modern debugging forces developers out of flow: copying errors, pasting them into web browsers, and losing local workspace context."* |
+| **15s–30s** | Right-click ➔ Select BugScope AI | *"With BugScope AI, you simply highlight the error in VS Code, right-click, and analyze. Notice how zero configuration or API key was required."* |
+| **30s–55s** | Showcase parsed trace & ranked impact | *"Immediately, BugScope maps the error to our project files, traces module dependencies, and ranks the blast radius using deterministic static evidence."* |
+| **55s–75s** | Click file link ➔ Jump to code & tests | *"Clicking any candidate jumps straight to the line. BugScope also identifies which existing test suites cover this failure, showing you exactly where to verify."* |
+| **75s–90s** | Disconnect Wi-Fi (Offline proof) | *"Everything you just saw ran 100% locally on this machine. BugScope AI turns errors into evidence-backed investigations — without leaving your editor."* |
+
+---
+
+## 10. Immediate Action Plan (First 30 Minutes)
+
+1. **[00m–05m]** Scaffold extension using `yo code` (TypeScript, Vite/esbuild).
+2. **[05m–10m]** Register `bugscope.analyzeError` command in `src/extension.ts`.
+3. **[10m–15m]** Add `editor/context` contribution with `"when": "editorHasSelection"` in `package.json`.
+4. **[15m–20m]** Register `bugscope.resultsView` WebviewView in `package.json`.
+5. **[20m–25m]** Wire command to capture `window.activeTextEditor.selection` and focus the sidebar view.
+6. **[25m–30m]** Press `F5`, open Extension Development Host, highlight text, and verify the context menu works!
+
+---
+
+> **Hackathon Mantra:** Make the exact interaction work in the first 2 hours. Everything else is earned progress. 🚀
