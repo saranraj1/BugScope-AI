@@ -65,11 +65,25 @@
         "category": "BugScope"
       }
     ],
+    "keybindings": [
+      {
+        "command": "bugscope.analyzeError",
+        "key": "ctrl+alt+b",
+        "mac": "cmd+alt+b",
+        "when": "editorTextFocus || terminalFocus || editorHasSelection || terminalHasSelection"
+      }
+    ],
     "menus": {
       "editor/context": [
         {
           "command": "bugscope.analyzeError",
           "when": "editorHasSelection",
+          "group": "navigation@10"
+        }
+      ],
+      "terminal/context": [
+        {
+          "command": "bugscope.analyzeError",
           "group": "navigation@10"
         }
       ],

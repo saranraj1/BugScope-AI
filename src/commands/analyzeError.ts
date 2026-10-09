@@ -18,40 +18,64 @@ export function registerAnalyzeErrorCommand(
       await credentialStore.checkAndPromptFirstTime();
     }
     const editor = vscode.window.activeTextEditor;
+    let selectedText = '';
 
-    if (!editor) {
-      vscode.window.showWarningMessage('BugScope AI: No active editor found. Open a file and select an error.');
-      return;
+    // 1. Try active editor selection
+    if (editor && editor.selection && !editor.selection.isEmpty) {
+      selectedText = editor.document.getText(editor.selection).trim();
     }
 
-    const selection = editor.selection;
-    const selectedText = editor.document.getText(selection).trim();
+    // 2. If no editor selection, try copying from terminal selection / clipboard
+    if (!selectedText) {
+      try {
+        await vscode.commands.executeCommand('workbench.action.terminal.copySelection');
+      } catch {}
+
+      try {
+        const clipText = (await vscode.env.clipboard.readText())?.trim();
+        if (clipText && clipText.length > 0) {
+          selectedText = clipText;
+        }
+      } catch {}
+    }
+
+    // 3. If still empty, provide keyboard-friendly input prompt
+    if (!selectedText) {
+      const input = await vscode.window.showInputBox({
+        title: 'BugScope AI: Analyse Error',
+        prompt: 'Paste the error message or stack trace from your terminal or logs (Ctrl+V / Cmd+V)',
+        placeHolder: 'e.g. TypeError: ... or Python traceback...',
+        ignoreFocusOut: true
+      });
+      if (input && input.trim()) {
+        selectedText = input.trim();
+      }
+    }
 
     if (!selectedText) {
-      vscode.window.showInformationMessage(
-        'BugScope AI: Please highlight an error message or stack trace in the editor first.'
-      );
       resultsProvider.setEmptyState(
-        'Empty selection detected.',
-        'Please highlight a stack trace, exception banner, or error log line in your editor and right-click.'
+        'No error text selected.',
+        'Highlight error text in your editor or terminal and press Ctrl+Alt+B, or paste it directly.'
       );
-      // Focus sidebar
       await vscode.commands.executeCommand('bugscope.resultsView.focus');
       return;
     }
 
-    // 1. Reveal results view and display loading state
+    // 4. Reveal results view and display loading state
     resultsProvider.setLoadingState(selectedText);
     await vscode.commands.executeCommand('bugscope.resultsView.focus');
 
-    // 2. Collect workspace options
+    // 5. Collect workspace options
     const workspaceFolders = vscode.workspace.workspaceFolders || [];
     const workspaceRoots = workspaceFolders.map((f) => f.uri.fsPath);
 
     if (workspaceRoots.length === 0) {
-      // Use directory of active file if no multi-root workspace
-      const activeFileDir = vscode.Uri.joinPath(editor.document.uri, '..').fsPath;
-      workspaceRoots.push(activeFileDir);
+      if (editor) {
+        const activeFileDir = vscode.Uri.joinPath(editor.document.uri, '..').fsPath;
+        workspaceRoots.push(activeFileDir);
+      } else {
+        workspaceRoots.push(process.cwd());
+      }
     }
 
     const config = vscode.workspace.getConfiguration('bugscope');
