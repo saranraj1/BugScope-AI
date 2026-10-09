@@ -68,8 +68,14 @@
     "keybindings": [
       {
         "command": "bugscope.analyzeError",
-        "key": "ctrl+alt+b",
-        "mac": "cmd+alt+b",
+        "key": "alt+shift+b",
+        "mac": "alt+shift+b",
+        "when": "editorTextFocus || terminalFocus || editorHasSelection || terminalHasSelection"
+      },
+      {
+        "command": "bugscope.analyzeError",
+        "key": "alt+shift+e",
+        "mac": "alt+shift+e",
         "when": "editorTextFocus || terminalFocus || editorHasSelection || terminalHasSelection"
       }
     ],
