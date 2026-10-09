@@ -69,14 +69,12 @@
       {
         "command": "bugscope.analyzeError",
         "key": "alt+shift+b",
-        "mac": "alt+shift+b",
-        "when": "editorTextFocus || terminalFocus || editorHasSelection || terminalHasSelection"
+        "mac": "alt+shift+b"
       },
       {
         "command": "bugscope.analyzeError",
         "key": "alt+shift+e",
-        "mac": "alt+shift+e",
-        "when": "editorTextFocus || terminalFocus || editorHasSelection || terminalHasSelection"
+        "mac": "alt+shift+e"
       }
     ],
     "menus": {
