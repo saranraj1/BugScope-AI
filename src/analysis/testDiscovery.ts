@@ -105,9 +105,11 @@ export class TestDiscovery {
 
       // If no test found, add recommended suite guidance
       if (!foundDirectTest) {
+        const isPy = path.extname(srcPath).toLowerCase() === '.py';
+        const defaultTestPath = isPy ? `tests/test_${srcBase}.py` : `test/${srcBase}.test.ts`;
         recommendations.push({
           testPath: '',
-          relativePath: `test/${srcBase}.test.ts`,
+          relativePath: defaultTestPath,
           targetSourcePath: srcPath,
           testType: 'recommended_suite',
           reason: `No automated test suite discovered for ${srcRel}. Add unit test to verify error boundary.`
@@ -134,6 +136,7 @@ export class TestDiscovery {
             name.includes('.test.') ||
             name.includes('.spec.') ||
             name.startsWith('test_') ||
+            name.endsWith('_test.py') ||
             name.endsWith('_test.go')
           ) {
             this.allTestFiles.push(path.join(dir, entry.name));

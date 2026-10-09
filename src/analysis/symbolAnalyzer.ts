@@ -77,7 +77,7 @@ export class SymbolAnalyzer {
         matched.push(token);
 
         // Check for symbol definition or direct call/property pattern
-        const defPattern = new RegExp(`\\b(function|class|interface|type|const|let|var|def)\\s+${escaped}\\b|${escaped}\\s*\\(|\\.${escaped}\\b|\\b${escaped}\\s*:`, 'm');
+        const defPattern = new RegExp(`\\b(function|class|interface|type|const|let|var|def|async\\s+def)\\s+${escaped}\\b|${escaped}\\s*\\(|\\.${escaped}\\b|\\b${escaped}\\s*[:=]`, 'm');
         if (defPattern.test(content)) {
           definedSymbols.push(token);
         }

@@ -51,7 +51,11 @@ export class DependencyAnalyzer {
         continue;
       }
 
-      const importedPaths = this.extractImportSpecifiers(content, node.fsPath);
+      const ext = path.extname(node.fsPath).toLowerCase();
+      const importedPaths = ext === '.py'
+        ? this.extractPythonImports(content, node.fsPath)
+        : this.extractImportSpecifiers(content, node.fsPath);
+
       for (const targetPath of importedPaths) {
         const targetKey = path.resolve(targetPath).toLowerCase();
         node.imports.push(targetPath);
@@ -204,7 +208,7 @@ export class DependencyAnalyzer {
 
         if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase();
-          if (['.ts', '.tsx', '.js', '.jsx', '.mjs'].includes(ext)) {
+          if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py'].includes(ext)) {
             // Ignore declaration files
             if (!entry.name.endsWith('.d.ts')) {
               results.push(path.join(dir, entry.name));
@@ -287,5 +291,118 @@ export class DependencyAnalyzer {
     }
 
     return null;
+  }
+
+  /**
+   * Extracts Python imports (relative 'from . import ...' and workspace 'import ...')
+   * and resolves them to concrete workspace .py or __init__.py files.
+   */
+  private extractPythonImports(content: string, sourceFilePath: string): string[] {
+    const resolvedImports = new Set<string>();
+    const sourceDir = path.dirname(sourceFilePath);
+    const searchRoots = [
+      sourceDir,
+      this.workspaceRoot,
+      path.join(this.workspaceRoot, 'src')
+    ].filter((dir) => fs.existsSync(dir));
+
+    const lines = content.split(/\r?\n/);
+
+    for (const rawLine of lines) {
+      // Strip comments
+      const line = rawLine.split('#')[0].trim();
+      if (!line) {
+        continue;
+      }
+
+      // Pattern 1: from <module> import <items>
+      const fromMatch = line.match(/^from\s+(\.+[\w.]*|[\w.]+)\s+import\s+(.+)$/);
+      if (fromMatch) {
+        const mod = fromMatch[1];
+        const items = fromMatch[2]
+          .replace(/[()]/g, '')
+          .split(',')
+          .map((i) => i.trim().split(/\s+as\s+/)[0].trim())
+          .filter(Boolean);
+
+        if (mod.startsWith('.')) {
+          // Relative Python import (e.g. from . import x, from .utils import y, from ..models import z)
+          const dotsMatch = mod.match(/^\.+/);
+          const dotCount = dotsMatch ? dotsMatch[0].length : 1;
+          const remainingMod = mod.substring(dotCount);
+
+          let baseDir = sourceDir;
+          for (let i = 1; i < dotCount; i++) {
+            baseDir = path.dirname(baseDir);
+          }
+
+          if (remainingMod) {
+            const modRel = remainingMod.replace(/\./g, path.sep);
+            const targetPath = path.join(baseDir, modRel);
+            this.tryAddPythonFile(targetPath + '.py', resolvedImports);
+            this.tryAddPythonFile(path.join(targetPath, '__init__.py'), resolvedImports);
+
+            // Also check if any imported items are submodules/files inside targetPath
+            for (const item of items) {
+              this.tryAddPythonFile(path.join(targetPath, item + '.py'), resolvedImports);
+              this.tryAddPythonFile(path.join(targetPath, item, '__init__.py'), resolvedImports);
+            }
+          } else {
+            // from . import a, b
+            for (const item of items) {
+              this.tryAddPythonFile(path.join(baseDir, item + '.py'), resolvedImports);
+              this.tryAddPythonFile(path.join(baseDir, item, '__init__.py'), resolvedImports);
+            }
+          }
+        } else {
+          // Absolute / package import (e.g. from checkout import calculate, from src.checkout import calculate)
+          for (const root of searchRoots) {
+            const modRel = mod.replace(/\./g, path.sep);
+            const candidate = path.join(root, modRel);
+
+            this.tryAddPythonFile(candidate + '.py', resolvedImports);
+            this.tryAddPythonFile(path.join(candidate, '__init__.py'), resolvedImports);
+
+            // Also check if any imported item is a submodule
+            for (const item of items) {
+              this.tryAddPythonFile(path.join(candidate, item + '.py'), resolvedImports);
+              this.tryAddPythonFile(path.join(candidate, item, '__init__.py'), resolvedImports);
+            }
+          }
+        }
+        continue;
+      }
+
+      // Pattern 2: import <module1>, <module2>
+      const importMatch = line.match(/^import\s+(.+)$/);
+      if (importMatch) {
+        const mods = importMatch[1]
+          .split(',')
+          .map((m) => m.trim().split(/\s+as\s+/)[0].trim())
+          .filter(Boolean);
+
+        for (const mod of mods) {
+          for (const root of searchRoots) {
+            const modRel = mod.replace(/\./g, path.sep);
+            const candidate = path.join(root, modRel);
+
+            this.tryAddPythonFile(candidate + '.py', resolvedImports);
+            this.tryAddPythonFile(path.join(candidate, '__init__.py'), resolvedImports);
+          }
+        }
+      }
+    }
+
+    return Array.from(resolvedImports);
+  }
+
+  private tryAddPythonFile(candidatePath: string, set: Set<string>): void {
+    if (
+      fs.existsSync(candidatePath) &&
+      fs.statSync(candidatePath).isFile() &&
+      WorkspaceSecurity.isPathWithinWorkspace(candidatePath, this.workspaceRoot)
+    ) {
+      set.add(path.resolve(candidatePath));
+    }
   }
 }

@@ -23,6 +23,16 @@ export class ErrorParser {
     'ValueError',
     'AttributeError',
     'NameError',
+    'ZeroDivisionError',
+    'IndexError',
+    'FileNotFoundError',
+    'ModuleNotFoundError',
+    'ImportError',
+    'StopIteration',
+    'UnboundLocalError',
+    'NotImplementedError',
+    'PermissionError',
+    'TimeoutError',
     'RuntimeError',
     'Exception',
     'Error'
@@ -112,6 +122,14 @@ export class ErrorParser {
       }
     }
 
+    // In Python tracebacks ("Traceback (most recent call last):"), calls are logged
+    // in chronological order (oldest caller first, throw site last).
+    // Normalize so frames[0] is the innermost throw site, matching standard call-stack order.
+    const isPythonTraceback = lines.some((l) => /traceback\s*(?:\(most recent call last\))?:/i.test(l));
+    if (isPythonTraceback) {
+      frames.reverse();
+    }
+
     return frames;
   }
 
@@ -170,7 +188,7 @@ export class ErrorParser {
    * e.g. 'File "checkout.py", line 42, in calculate_discount'
    */
   private static parsePythonFrame(line: string): StackFrame | null {
-    const match = line.match(/^File\s+["'](.+?)["'],\s+line\s+(\d+)(?:,\s+in\s+(.+))?$/);
+    const match = line.match(/^File\s+["']?([^"',\r\n]+?)["']?,\s+line\s+(\d+)(?:,\s+in\s+(.+))?$/);
     if (match) {
       return {
         functionName: match[3]?.trim(),

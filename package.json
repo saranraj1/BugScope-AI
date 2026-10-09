@@ -2,7 +2,7 @@
   "name": "bugscope-ai",
   "displayName": "BugScope AI",
   "description": "Local-first, evidence-driven error impact analysis and blast radius tracing inside VS Code.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "bugscope",
   "license": "MIT",
   "repository": {
@@ -152,6 +152,7 @@
     "build": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --minify",
     "build:dev": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap",
     "test": "mocha -r tsx \"test/**/*.test.ts\" --timeout 10000",
+    "test:python": "python -m unittest discover -s test/fixtures/python-project/tests -p \"test_*.py\"",
     "package": "vsce package --no-dependencies"
   },
   "devDependencies": {

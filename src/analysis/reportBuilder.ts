@@ -91,7 +91,11 @@ export class ReportBuilder {
           p.startsWith('<') ||
           p.includes('internal/process') ||
           p.includes('internal/vm') ||
-          p.includes('internal/modules');
+          p.includes('internal/modules') ||
+          p.includes('site-packages') ||
+          p.includes('/lib/python') ||
+          p.includes('\\lib\\python') ||
+          p.includes('<frozen');
 
         if (isRuntime) {
           runtimeInternalFrames.push(frame.relativePath);
@@ -108,6 +112,9 @@ export class ReportBuilder {
             const lower = f.toLowerCase();
             if (lower.startsWith('node:')) return 'node:internal/*';
             if (lower.includes('eval')) return '[eval]';
+            if (lower.includes('site-packages')) return 'python:site-packages/*';
+            if (lower.includes('lib/python') || lower.includes('\\lib\\python')) return 'python:lib/*';
+            if (lower.startsWith('<')) return lower.includes('frozen') ? '<frozen importlib>' : lower;
             return f;
           })
         )

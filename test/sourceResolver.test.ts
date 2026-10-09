@@ -84,4 +84,39 @@ describe('SourceResolver & WorkspaceSecurity Tests', () => {
     assert.strictEqual(WorkspaceSecurity.isSensitiveFile('id_rsa'), true);
     assert.strictEqual(WorkspaceSecurity.isSensitiveFile('checkout.ts'), false);
   });
+
+  it('7. Resolves native Python stack frames and captures Python context snippets', () => {
+    const pythonRoot = path.join(__dirname, 'fixtures', 'python-project');
+    const resolver = new SourceResolver([pythonRoot]);
+    const frame: StackFrame = {
+      rawPath: 'src/checkout.py',
+      line: 28,
+      functionName: 'calculate_discount',
+      rawFrame: 'File "src/checkout.py", line 28, in calculate_discount'
+    };
+
+    const resolved = resolver.resolveSingleFrame(frame);
+    assert.ok(resolved);
+    assert.strictEqual(resolved.exists, true);
+    assert.strictEqual(resolved.isWithinWorkspace, true);
+    assert.strictEqual(resolved.relativePath, 'src/checkout.py');
+    assert.strictEqual(resolved.line, 28);
+    assert.ok(resolved.snippet);
+
+    const targetLine = resolved.snippet.lines.find((l) => l.isTarget);
+    assert.ok(targetLine);
+    assert.strictEqual(targetLine.lineNumber, 28);
+    assert.ok(targetLine.content.includes("discount_rate = cart['discount']['rate']"));
+  });
+
+  it('8. WorkspaceSecurity correctly ignores Python virtual environments and caches', () => {
+    assert.strictEqual(WorkspaceSecurity.isIgnoredDirectory('__pycache__'), true);
+    assert.strictEqual(WorkspaceSecurity.isIgnoredDirectory('.venv'), true);
+    assert.strictEqual(WorkspaceSecurity.isIgnoredDirectory('venv'), true);
+    assert.strictEqual(WorkspaceSecurity.isIgnoredDirectory('env'), true);
+    assert.strictEqual(WorkspaceSecurity.isIgnoredDirectory('.pytest_cache'), true);
+    assert.strictEqual(WorkspaceSecurity.isIgnoredDirectory('.mypy_cache'), true);
+    assert.strictEqual(WorkspaceSecurity.isIgnoredDirectory('package.egg-info'), true);
+    assert.strictEqual(WorkspaceSecurity.isIgnoredDirectory('src'), false);
+  });
 });

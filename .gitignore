@@ -7,3 +7,6 @@ dist/
 out/
 *.vsix
 powershell.bat
+__pycache__/
+*.pyc
+.pytest_cache/

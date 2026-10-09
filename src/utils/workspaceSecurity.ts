@@ -26,7 +26,15 @@ export class WorkspaceSecurity {
     '.next',
     '.nuxt',
     'coverage',
-    '.vscode-test'
+    '.vscode-test',
+    '__pycache__',
+    '.venv',
+    'venv',
+    'env',
+    '.pytest_cache',
+    '.mypy_cache',
+    '.tox',
+    '.ruff_cache'
   ]);
 
   /**
@@ -34,7 +42,7 @@ export class WorkspaceSecurity {
    */
   public static isIgnoredDirectory(dirName: string): boolean {
     const base = path.basename(dirName).toLowerCase();
-    return this.IGNORED_DIRS.has(base);
+    return this.IGNORED_DIRS.has(base) || base.endsWith('.egg-info') || base.endsWith('.dist-info');
   }
 
   /**
