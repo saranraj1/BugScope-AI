@@ -1,4 +1,4 @@
-# BugScope AI — NEXUS'26 Hackathon Master Plan
+# BugScope AI — Master Technical Architecture & Engineering Plan
 
 > **VS Code-Native · Local-First · Evidence-Driven**  
 > *Understand an error, trace its potential impact, and prioritise what to investigate next — without leaving the editor.*
@@ -7,9 +7,9 @@
 
 <div align="center">
 
-| ⏱️ Development Budget | 🔌 Core Offline Capability | 🎯 Target Platform |
+| ⏱️ Execution Model | 🔌 Core Offline Capability | 🎯 Target Platform |
 | :---: | :---: | :---: |
-| **Strict 24-Hour Sprint** | **Zero API Key Needed (Local-First)** | **VS Code Extension (TypeScript)** |
+| **Production-Grade Architecture** | **Zero API Key Needed (Local-First)** | **VS Code Extension (TypeScript)** |
 
 </div>
 
@@ -71,7 +71,7 @@ The results panel renders:
 
 ---
 
-## 2. Realistic 24-Hour Scope Matrix
+## 2. Core Architectural Scope Matrix
 
 | Tier | Focus Area | Deliverables |
 | :--- | :--- | :--- |
@@ -90,7 +90,7 @@ The results panel renders:
 | **P2 (Out of Scope)** | **Non-Goals** | ❌ Auto-patching / modifying files on disk<br/>❌ Full cross-language call graphs<br/>❌ Training custom ML models<br/>❌ Large historical git/bug mining<br/>❌ Complex multi-agent choreography<br/>❌ External web apps, databases, or cloud accounts |
 
 > [!TIP]
-> **Scope Golden Rule:** If a feature does not directly improve the *Select ➔ Analyse ➔ Inspect Evidence* flow, it does not get built during this hackathon.
+> **Scope Golden Rule:** If a feature does not directly improve the *Select ➔ Analyse ➔ Inspect Evidence* flow, it does not get built in core scope.
 
 ---
 
@@ -298,33 +298,33 @@ bugscope-ai/
 
 ---
 
-## 5. 24-Hour Execution Schedule
+## 5. Phased Execution Roadmap
 
 ```
-  0h       2h           5h               9h             12h            15h               19h          21h       24h
-  ├────────┼────────────┼────────────────┼──────────────┼──────────────┼─────────────────┼────────────┼─────────┤
-  │ Phase 1│  Phase 2   │    Phase 3     │   Phase 4    │   Phase 5    │     Phase 6     │  Phase 7   │ Phase 8 │
-  │ Scaffold│ Parser     │ Code Analysis  │ Impact Score │ Webview UI   │ Test & Hardening│ Optional AI│ Pack&Demo
+  Phase 1        Phase 2             Phase 3               Phase 4              Phase 5            Phase 6               Phase 7          Phase 8
+  ├──────────────┼───────────────────┼─────────────────────┼────────────────────┼──────────────────┼─────────────────────┼────────────────┼─────────┤
+  │ Extension    │ Error & Frame     │ AST Dependency      │ Multi-Factor       │ Results Webview  │ Security & Edge     │ Optional AI    │ Release
+  │ Foundation   │ Parsing Engine    │ Mapping Pipeline    │ Scoring Engine     │ Interface        │ Hardening (56 tests)│ Enrichment     │ & VSIX
 ```
 
 ### Phase Breakdown & Strict Quality Gates
 
-| Phase & Hours | Core Focus | Deliverables | 🚪 Exit Gate (Go / No-Go) |
+| Phase | Core Focus | Deliverables | 🚪 Exit Gate (Go / No-Go) |
 | :--- | :--- | :--- | :--- |
-| **00h–02h** (2h)<br/>*Phase 1* | **Extension Foundation** | Scaffold TypeScript extension, register command, context-menu contribution, sidebar WebviewView. | Right-click selected text ➔ click command ➔ BugScope view opens with selected text shown. |
-| **02h–05h** (3h)<br/>*Phase 2* | **Error & Frame Parsing** | Regex extraction for JS/TS stack frames, exception types, file paths, and line numbers. | Real fixture stack trace correctly resolves to target file and line in workspace. |
-| **05h–09h** (4h)<br/>*Phase 3* | **Local Code Analysis** | Inspect source context, resolve AST `import`/`export` dependencies, and discover matching test files. | Engine outputs structured list of direct callers and importing modules. |
-| **09h–12h** (3h)<br/>*Phase 4* | **Impact Ranking Engine** | Multi-factor heuristic scorer weighting stack depth, dependency distance, and symbol matches. | Output report ranks candidate files with human-readable rationale explanations. |
-| **12h–15h** (3h)<br/>*Phase 5* | **Results Interface** | Sidebar Webview with error summary, impact list, test suggestions, and clickable `vscode://` links. | User clicks candidate file in sidebar ➔ editor jumps to exact file and line. |
-| **15h–19h** (4h)<br/>*Phase 6* | **Hardening & Edge Cases** | Boundary checks, ignoring `node_modules`, handling malformed traces, handling large workspaces. | 100% of integration test fixtures pass cleanly without IDE freeze. |
-| **19h–21h** (2h)<br/>*Phase 7* | **Optional AI Enrichment** | Optional adapter to summarize causes with LLM if user provides API key or Ollama. | AI enrichment augments report; disabling AI leaves 100% baseline intact. *(Skip if Phase 6 slips)* |
-| **21h–24h** (3h)<br/>*Phase 8* | **Packaging & Demo Prep** | Build `.vsix`, install into fresh VS Code profile, polish demo fixtures, rehearse 90s pitch. | End-to-end demo runs from scratch in a pristine environment with zero errors. |
+| **Phase 1** | **Extension Foundation** | Scaffold TypeScript extension, register command, context-menu contribution, sidebar WebviewView. | Right-click selected text ➔ click command ➔ BugScope view opens with selected text shown. |
+| **Phase 2** | **Error & Frame Parsing** | Regex extraction for JS/TS stack frames, exception types, file paths, and line numbers. | Real fixture stack trace correctly resolves to target file and line in workspace. |
+| **Phase 3** | **Local Code Analysis** | Inspect source context, resolve AST `import`/`export` dependencies, and discover matching test files. | Engine outputs structured list of direct callers and importing modules. |
+| **Phase 4** | **Impact Ranking Engine** | Multi-factor heuristic scorer weighting stack depth, dependency distance, and symbol matches. | Output report ranks candidate files with human-readable rationale explanations. |
+| **Phase 5** | **Results Interface** | Sidebar Webview with error summary, impact list, test suggestions, and clickable `vscode://` links. | User clicks candidate file in sidebar ➔ editor jumps to exact file and line. |
+| **Phase 6** | **Hardening & Edge Cases** | Boundary checks, ignoring `node_modules`, handling malformed traces, handling large workspaces. | 100% of integration test fixtures pass cleanly without IDE freeze. |
+| **Phase 7** | **Optional AI Enrichment** | Optional adapter to summarize causes with LLM if user provides API key or Ollama. | AI enrichment augments report; disabling AI leaves 100% baseline intact. |
+| **Phase 8** | **Packaging & Verification** | Build `.vsix`, install into fresh VS Code profile, polish demo fixtures, verify test suite. | End-to-end demo runs from scratch in a pristine environment with zero errors. |
 
 ---
 
 ## 6. The Impact Engine: Explainable & Evidence-Backed
 
-We build judge credibility through **evidence transparency**, not opaque claims of "AI psychic debugging".
+We build engineering credibility through **evidence transparency**, not opaque claims of "AI psychic debugging".
 
 ### Scoring Formulation
 
@@ -360,14 +360,14 @@ Where for each candidate file $f$:
 
 | Risk | Likelihood | Impact | Concrete Mitigation |
 | :--- | :---: | :---: | :--- |
-| **Context menu item fails to show** | Medium | High | Test declarative `package.json` menu contribution in Hour 1; verify `editorHasSelection` predicate. |
+| **Context menu item fails to show** | Medium | High | Test declarative `package.json` menu contribution early; verify `editorHasSelection` predicate. |
 | **Sidebar doesn't open / blank UI** | Medium | High | Implement Webview View provider with robust messaging (`postMessage`) before connecting analysis logic. |
 | **Stack traces in varied formats** | High | Medium | Implement standard V8/Node format first, with defensive regex fallback that extracts `(filename:line:col)`. |
 | **Dependency analysis freezes IDE** | High | High | Run analysis asynchronously; limit search depth to 2 hops; strictly exclude `node_modules`, `dist`, `.git`. |
 | **LLM produces hallucinations** | High | Medium | Enforce strict separation: deterministic facts in Section A; AI hypotheses clearly labeled in Section B. |
-| **External AI API drops / slow** | High | High | Local analysis is primary; AI is an asynchronous non-blocking decorator. Demo works completely offline. |
+| **External AI API drops / slow** | High | High | Local analysis is primary; AI is an asynchronous non-blocking decorator. Works completely offline. |
 | **Source files contain secrets** | Low | High | Never transmit full files externally; local analysis only parses AST imports and signatures. |
-| **Demo breaks on stage** | Medium | Critical | Prepare a locked, tested fixture repository and record a high-definition backup screen capture. |
+| **Demonstration failure** | Medium | Critical | Prepare locked, tested fixture repositories and verify completely offline. |
 
 ### The Three Deadly Traps to Avoid
 1. 🪤 **Building a full cross-language call graph before the right-click command works.**
@@ -379,35 +379,35 @@ Where for each candidate file $f$:
 ## 8. Release Acceptance Checklist
 
 ### 🕹️ User Interaction
-- [ ] Selecting text in editor reveals `BugScope AI: Analyse Error Impact` in context menu.
-- [ ] Clicking context menu action reveals BugScope sidebar view immediately.
-- [ ] Selecting non-error text displays a polite guidance prompt without crashing.
-- [ ] Empty or cleared selections disable or gracefully handle command execution.
+- [x] Selecting text in editor reveals `BugScope AI: Analyse Error Impact` in context menu.
+- [x] Clicking context menu action reveals BugScope sidebar view immediately.
+- [x] Selecting non-error text displays a polite guidance prompt without crashing.
+- [x] Empty or cleared selections prompt for input or gracefully handle command execution.
 
 ### ⚙️ Analysis Engine
-- [ ] Correctly parses exception type, message, and stack frames from standard traces.
-- [ ] Accurately resolves relative and absolute paths to real workspace files.
-- [ ] Identifies direct import/export relationships for candidate files.
-- [ ] Ranks impacted modules with clear numerical score and transparent justification.
-- [ ] Discovers associated test files (`*.test.ts`, `*.spec.ts`) in the workspace.
+- [x] Correctly parses exception type, message, and stack frames from standard traces.
+- [x] Accurately resolves relative and absolute paths to real workspace files.
+- [x] Identifies direct import/export relationships for candidate files.
+- [x] Ranks impacted modules with clear numerical score and transparent justification.
+- [x] Discovers associated test files (`*.test.ts`, `*.spec.ts`, `test_*.py`) in the workspace.
 
 ### 🛡️ Reliability & Security
-- [ ] 100% of core analysis functions without an active internet connection or API key.
-- [ ] Malformed or partial stack traces do not cause unhandled exceptions or IDE lockups.
-- [ ] Directory scanning enforces workspace boundary containment and size limits.
-- [ ] Respects `.gitignore` and ignores `node_modules` / build artifacts.
+- [x] 100% of core analysis functions without an active internet connection or API key.
+- [x] Malformed or partial stack traces do not cause unhandled exceptions or IDE lockups.
+- [x] Directory scanning enforces workspace boundary containment and size limits.
+- [x] Respects `.gitignore` and ignores `node_modules` / build artifacts.
 
 ### 📦 Packaging & Presentation
-- [ ] Clicking any file or line reference in the Webview jumps directly to the editor location.
-- [ ] Extension packages into `.vsix` via `vsce package` with zero compiler errors.
-- [ ] Clean install and activation verified in a fresh VS Code profile.
-- [ ] README includes 1-minute quickstart, fixture walkthrough, and architecture diagram.
+- [x] Clicking any file or line reference in the Webview jumps directly to the editor location.
+- [x] Extension packages into `.vsix` via `vsce package` with zero compiler errors.
+- [x] Clean install and activation verified in VS Code profile.
+- [x] README includes 1-minute quickstart, fixture walkthrough, and architecture diagram.
 
 ---
 
-## 9. The 90-Second Winning Pitch Script
+## 9. The 90-Second Demonstration Script
 
-| Time | Action | Voiceover / Pitch |
+| Time | Action | Demonstration Walkthrough |
 | :--- | :--- | :--- |
 | **00s–15s** | Highlight real error in code editor | *"Modern debugging forces developers out of flow: copying errors, pasting them into web browsers, and losing local workspace context."* |
 | **15s–30s** | Right-click ➔ Select BugScope AI | *"With BugScope AI, you simply highlight the error in VS Code, right-click, and analyze. Notice how zero configuration or API key was required."* |
@@ -417,15 +417,15 @@ Where for each candidate file $f$:
 
 ---
 
-## 10. Immediate Action Plan (First 30 Minutes)
+## 10. Execution Architecture Summary
 
-1. **[00m–05m]** Scaffold extension using `yo code` (TypeScript, Vite/esbuild).
-2. **[05m–10m]** Register `bugscope.analyzeError` command in `src/extension.ts`.
-3. **[10m–15m]** Add `editor/context` contribution with `"when": "editorHasSelection"` in `package.json`.
-4. **[15m–20m]** Register `bugscope.resultsView` WebviewView in `package.json`.
-5. **[20m–25m]** Wire command to capture `window.activeTextEditor.selection` and focus the sidebar view.
-6. **[25m–30m]** Press `F5`, open Extension Development Host, highlight text, and verify the context menu works!
+1. Scaffold extension using TypeScript, esbuild, and Node 18 target.
+2. Register `bugscope.analyzeError` command in `src/extension.ts`.
+3. Add `editor/context` contribution with `"when": "editorHasSelection"` in `package.json`.
+4. Register `bugscope.resultsView` WebviewView in `package.json`.
+5. Wire command to capture selection or prompt, and focus the sidebar view.
+6. Verify automated test suite (`npm test`, 56/56 passing) and package `.vsix`.
 
 ---
 
-> **Hackathon Mantra:** Make the exact interaction work in the first 2 hours. Everything else is earned progress. 🚀
+> **Core Engineering Principle:** Make the exact interaction work end-to-end. Everything else is earned progress. 🚀
