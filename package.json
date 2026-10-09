@@ -1,0 +1,128 @@
+{
+  "name": "bugscope-ai",
+  "displayName": "BugScope AI",
+  "description": "Local-first, evidence-driven error impact analysis and blast radius tracing inside VS Code.",
+  "version": "0.1.0",
+  "publisher": "bugscope",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/saranraj1/BugScope-AI.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Testing",
+    "Other"
+  ],
+  "keywords": [
+    "debugging",
+    "stack-trace",
+    "error-analysis",
+    "impact-analysis",
+    "local-first"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onCommand:bugscope.analyzeError"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "bugscope-sidebar-view",
+          "title": "BugScope AI",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "bugscope-sidebar-view": [
+        {
+          "type": "webview",
+          "id": "bugscope.resultsView",
+          "name": "Error Impact Analysis"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "bugscope.analyzeError",
+        "title": "BugScope AI: Analyse Error Impact",
+        "category": "BugScope"
+      },
+      {
+        "command": "bugscope.clearAnalysis",
+        "title": "BugScope AI: Clear Findings",
+        "category": "BugScope"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "bugscope.analyzeError",
+          "when": "editorHasSelection",
+          "group": "navigation@10"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "bugscope.clearAnalysis",
+          "when": "view == bugscope.resultsView",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "BugScope AI",
+      "properties": {
+        "bugscope.ai.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable optional AI explanation enrichment (Default: false / 100% offline local baseline)."
+        },
+        "bugscope.ai.endpoint": {
+          "type": "string",
+          "default": "http://localhost:11434/v1",
+          "description": "Optional local or remote OpenAI-compatible endpoint (e.g. Ollama or API)."
+        },
+        "bugscope.ai.model": {
+          "type": "string",
+          "default": "llama3.2",
+          "description": "Model identifier for optional enrichment."
+        },
+        "bugscope.analysis.maxFilesScan": {
+          "type": "number",
+          "default": 300,
+          "description": "Maximum workspace files to scan for dependency analysis."
+        },
+        "bugscope.analysis.maxHops": {
+          "type": "number",
+          "default": 2,
+          "description": "Maximum dependency hops to trace from failing module."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "build": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --minify",
+    "build:dev": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node18 --sourcemap",
+    "test": "mocha -r tsx \"test/**/*.test.ts\" --timeout 10000",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.17.10",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.2",
+    "mocha": "^11.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

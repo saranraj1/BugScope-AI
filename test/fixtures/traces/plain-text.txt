@@ -1,0 +1,4 @@
+// This is an ordinary helper function
+export function addNumbers(a: number, b: number): number {
+  return a + b;
+}

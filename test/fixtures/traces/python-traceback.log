@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "src/routes/cart.py", line 12, in handle_checkout
+    return process_order(cart)
+  File "src/order_service.py", line 45, in process_order
+    return calculate_discount(cart)
+  File "src/checkout.py", line 28, in calculate_discount
+    discount_rate = cart['discount']['rate']
+KeyError: 'discount'

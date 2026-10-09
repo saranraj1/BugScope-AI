@@ -1,0 +1,5 @@
+--- [CRITICAL ENGINE ERROR] ---
+Something crashed while running worker task
+at (unknown:??:??)
+corrupt stack frame without valid numbers
+### End of crash dump ###

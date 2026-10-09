@@ -1,0 +1,653 @@
+import * as vscode from 'vscode';
+import { AnalysisReport, WebviewMessage, WebviewAction } from '../models/analysisResult';
+
+/**
+ * ResultsViewProvider - Manages the native BugScope Webview in the sidebar.
+ */
+export class ResultsViewProvider implements vscode.WebviewViewProvider {
+  public static readonly viewType = 'bugscope.resultsView';
+
+  private view?: vscode.WebviewView;
+  private currentReport?: AnalysisReport;
+  private currentState: 'idle' | 'loading' | 'success' | 'empty' | 'error' = 'idle';
+  private lastErrorMessage?: string;
+  private lastLoadingText?: string;
+
+  constructor(private readonly extensionUri: vscode.Uri) {}
+
+  public resolveWebviewView(
+    webviewView: vscode.WebviewView,
+    _context: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken
+  ): void {
+    this.view = webviewView;
+
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [this.extensionUri]
+    };
+
+    // Set initial HTML shell
+    webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
+
+    // Handle incoming messages from the Webview script
+    webviewView.webview.onDidReceiveMessage(async (action: WebviewAction) => {
+      switch (action.action) {
+        case 'OPEN_LOCATION':
+          await this.openSourceLocation(action.file, action.line, action.column);
+          break;
+        case 'RERUN_ANALYSIS':
+          await vscode.commands.executeCommand('bugscope.analyzeError');
+          break;
+        case 'CLEAR':
+          this.setIdleState();
+          break;
+      }
+    });
+
+    // Replay state if view was recreated
+    this.renderCurrentState();
+  }
+
+  /**
+   * Sets the view into an active loading state.
+   */
+  public setLoadingState(selectionText: string): void {
+    this.currentState = 'loading';
+    this.lastLoadingText = selectionText;
+    this.postMessage({ type: 'STATE_LOADING', selectionText });
+  }
+
+  /**
+   * Displays the completed analysis report.
+   */
+  public setReport(report: AnalysisReport): void {
+    this.currentState = 'success';
+    this.currentReport = report;
+    this.postMessage({ type: 'STATE_SUCCESS', report });
+  }
+
+  /**
+   * Displays guidance when user selected non-error text or empty space.
+   */
+  public setEmptyState(message: string, hint: string): void {
+    this.currentState = 'empty';
+    this.postMessage({ type: 'STATE_EMPTY', message, hint });
+  }
+
+  /**
+   * Displays an error message when analysis fails.
+   */
+  public setErrorState(errorMessage: string, details?: string): void {
+    this.currentState = 'error';
+    this.lastErrorMessage = errorMessage;
+    this.postMessage({ type: 'STATE_ERROR', errorMessage, details });
+  }
+
+  /**
+   * Resets the view to idle prompt.
+   */
+  public setIdleState(): void {
+    this.currentState = 'idle';
+    this.currentReport = undefined;
+    this.postMessage({ type: 'STATE_IDLE' });
+  }
+
+  private postMessage(msg: WebviewMessage): void {
+    if (this.view) {
+      this.view.webview.postMessage(msg);
+    }
+  }
+
+  private renderCurrentState(): void {
+    if (this.currentState === 'success' && this.currentReport) {
+      this.postMessage({ type: 'STATE_SUCCESS', report: this.currentReport });
+    } else if (this.currentState === 'loading' && this.lastLoadingText) {
+      this.postMessage({ type: 'STATE_LOADING', selectionText: this.lastLoadingText });
+    } else if (this.currentState === 'error' && this.lastErrorMessage) {
+      this.postMessage({ type: 'STATE_ERROR', errorMessage: this.lastErrorMessage });
+    } else {
+      this.postMessage({ type: 'STATE_IDLE' });
+    }
+  }
+
+  /**
+   * Safely opens a file and focuses the target line in the VS Code editor.
+   */
+  private async openSourceLocation(file: string, line: number, column?: number): Promise<void> {
+    try {
+      let targetUri: vscode.Uri;
+      if (vscode.Uri.parse(file).scheme === 'file') {
+        targetUri = vscode.Uri.file(file);
+      } else {
+        targetUri = vscode.Uri.file(file);
+      }
+
+      const doc = await vscode.workspace.openTextDocument(targetUri);
+      const editor = await vscode.window.showTextDocument(doc, {
+        preview: true,
+        preserveFocus: false
+      });
+
+      const zeroLine = Math.max(0, (line || 1) - 1);
+      const zeroCol = Math.max(0, (column || 1) - 1);
+      const pos = new vscode.Position(zeroLine, zeroCol);
+
+      editor.selection = new vscode.Selection(pos, pos);
+      editor.revealRange(
+        new vscode.Range(pos, pos),
+        vscode.TextEditorRevealType.InCenter
+      );
+    } catch (err: any) {
+      vscode.window.showErrorMessage(`BugScope AI: Unable to open file ${file}: ${err.message}`);
+    }
+  }
+
+  /**
+   * Generates the self-contained HTML/CSS/JS frontend for the webview.
+   */
+  private getHtmlForWebview(webview: vscode.Webview): string {
+    const cspSource = webview.cspSource;
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BugScope AI</title>
+  <style>
+    :root {
+      --bg: var(--vscode-sideBar-background);
+      --fg: var(--vscode-sideBar-foreground);
+      --font: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+      --border: var(--vscode-panel-border, rgba(255,255,255,0.1));
+      --accent: var(--vscode-focusBorder, #007acc);
+      --card-bg: var(--vscode-editor-background);
+      --card-border: var(--vscode-widget-border, rgba(255,255,255,0.08));
+      --badge-observed: #10b981;
+      --badge-inferred: #f59e0b;
+      --badge-hypothesis: #3b82f6;
+      --error-badge: #ef4444;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg);
+      color: var(--fg);
+      font-family: var(--font);
+      font-size: 13px;
+      line-height: 1.5;
+      padding: 12px;
+      user-select: text;
+    }
+
+    .container { display: flex; flex-direction: column; gap: 14px; }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    .header-title {
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .offline-tag {
+      font-size: 10px;
+      font-weight: 600;
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 12px;
+      padding: 2px 8px;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .card-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 700;
+      color: var(--vscode-descriptionForeground);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Error Banner */
+    .error-banner {
+      background: rgba(239, 68, 68, 0.08);
+      border-left: 3px solid var(--error-badge);
+      padding: 8px 10px;
+      border-radius: 4px;
+    }
+    .error-type {
+      font-weight: 700;
+      color: var(--error-badge);
+      font-size: 12px;
+    }
+    .error-msg {
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 12px;
+      margin-top: 4px;
+      word-break: break-word;
+    }
+
+    /* Clickable Link */
+    .file-link {
+      color: var(--accent);
+      cursor: pointer;
+      text-decoration: none;
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .file-link:hover { text-decoration: underline; }
+
+    /* Code Snippet */
+    .snippet-box {
+      background: rgba(0,0,0,0.25);
+      border-radius: 4px;
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 11px;
+      overflow-x: auto;
+      padding: 6px 0;
+      margin-top: 4px;
+    }
+    .snippet-line {
+      display: flex;
+      padding: 1px 8px;
+      white-space: pre;
+    }
+    .snippet-line.target {
+      background: rgba(239, 68, 68, 0.2);
+      border-left: 3px solid var(--error-badge);
+      font-weight: 600;
+    }
+    .line-no {
+      color: var(--vscode-editorLineNumber-foreground, #666);
+      width: 28px;
+      text-align: right;
+      padding-right: 8px;
+      user-select: none;
+    }
+
+    /* Candidate Items */
+    .candidate-item {
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .candidate-item:last-child { border-bottom: none; padding-bottom: 0; }
+
+    .candidate-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .rank-pill {
+      font-size: 10px;
+      font-weight: 700;
+      background: rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 1px 6px;
+    }
+    .score-meter {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--vscode-badge-foreground);
+      background: var(--vscode-badge-background);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .reasons-list {
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+      padding-left: 14px;
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+    .badge-observed { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+    .badge-inferred { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+    .badge-hypothesis { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+
+    /* Test item */
+    .test-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 12px;
+    }
+
+    /* Empty & Loading */
+    .idle-box, .loading-box, .error-box {
+      text-align: center;
+      padding: 30px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      color: var(--vscode-descriptionForeground);
+    }
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid rgba(255,255,255,0.15);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    button {
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      border: none;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    button:hover { background: var(--vscode-button-hoverBackground); }
+  </style>
+</head>
+<body>
+  <div id="app" class="container"></div>
+
+  <script>
+    const vscode = acquireVsCodeApi();
+    const app = document.getElementById('app');
+
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      switch (msg.type) {
+        case 'STATE_IDLE':
+          renderIdle();
+          break;
+        case 'STATE_LOADING':
+          renderLoading(msg.selectionText);
+          break;
+        case 'STATE_SUCCESS':
+          renderReport(msg.report);
+          break;
+        case 'STATE_EMPTY':
+          renderEmpty(msg.message, msg.hint);
+          break;
+        case 'STATE_ERROR':
+          renderError(msg.errorMessage, msg.details);
+          break;
+      }
+    });
+
+    function renderIdle() {
+      app.innerHTML = \`
+        <div class="header">
+          <div class="header-title">🔍 BugScope AI</div>
+          <span class="offline-tag">Local-First</span>
+        </div>
+        <div class="idle-box">
+          <div style="font-size: 28px;">🎯</div>
+          <div style="font-weight: 600; color: var(--fg);">No Error Analyzed</div>
+          <div style="font-size: 12px;">Highlight an error message or stack trace in the editor, right-click, and select:</div>
+          <div style="font-weight: 700; color: var(--accent); font-size: 11px; background: rgba(0,0,0,0.2); padding: 6px 10px; border-radius: 4px;">
+            BugScope AI: Analyse Error Impact
+          </div>
+        </div>
+      \`;
+    }
+
+    function renderLoading(text) {
+      app.innerHTML = \`
+        <div class="header">
+          <div class="header-title">🔍 BugScope AI</div>
+          <span class="offline-tag">Analyzing...</span>
+        </div>
+        <div class="loading-box">
+          <div class="spinner"></div>
+          <div style="font-weight: 600; color: var(--fg);">Tracing Workspace Impact</div>
+          <div style="font-size: 11px; max-width: 240px; word-break: break-all; opacity: 0.8;">
+            Parsing frames & mapping module dependencies...
+          </div>
+        </div>
+      \`;
+    }
+
+    function renderEmpty(message, hint) {
+      app.innerHTML = \`
+        <div class="header">
+          <div class="header-title">🔍 BugScope AI</div>
+          <span class="offline-tag">Guidance</span>
+        </div>
+        <div class="card" style="border-left: 3px solid var(--badge-inferred);">
+          <div class="card-title">Notice</div>
+          <div style="font-size: 12px;">\${escapeHtml(message)}</div>
+          <div style="font-size: 11px; color: var(--vscode-descriptionForeground); margin-top: 4px;">
+            \${escapeHtml(hint)}
+          </div>
+        </div>
+      \`;
+    }
+
+    function renderError(err, details) {
+      app.innerHTML = \`
+        <div class="header">
+          <div class="header-title">🔍 BugScope AI</div>
+          <span class="offline-tag" style="color: #ef4444; border-color: rgba(239,68,68,0.3);">Failed</span>
+        </div>
+        <div class="card error-banner">
+          <div class="error-type">Analysis Error</div>
+          <div class="error-msg">\${escapeHtml(err)}</div>
+          \${details ? \`<div style="font-size: 11px; margin-top: 6px; opacity: 0.8;">\${escapeHtml(details)}</div>\` : ''}
+        </div>
+      \`;
+    }
+
+    function renderReport(r) {
+      const primaryLoc = r.primaryLocation;
+      let primaryHtml = '';
+
+      if (primaryLoc && primaryLoc.exists) {
+        let snippetHtml = '';
+        if (primaryLoc.snippet) {
+          snippetHtml = \`
+            <div class="snippet-box">
+              \${primaryLoc.snippet.lines.map(l => \`
+                <div class="snippet-line \${l.isTarget ? 'target' : ''}">
+                  <span class="line-no">\${l.lineNumber}</span>
+                  <span>\${escapeHtml(l.content)}</span>
+                </div>
+              \`).join('')}
+            </div>
+          \`;
+        }
+
+        primaryHtml = \`
+          <div class="card">
+            <div class="card-title">
+              <span>Throw Origin</span>
+              <span class="badge badge-observed">Observed Fact</span>
+            </div>
+            <div>
+              <a class="file-link" onclick="openLocation('\${escapeAttr(primaryLoc.fsPath)}', \${primaryLoc.line}, \${primaryLoc.column})">
+                📄 \${escapeHtml(primaryLoc.relativePath)}:\${primaryLoc.line}
+              </a>
+            </div>
+            \${snippetHtml}
+          </div>
+        \`;
+      }
+
+      // Candidates
+      const candidatesHtml = r.candidates.length > 0
+        ? r.candidates.map(c => \`
+            <div class="candidate-item">
+              <div class="candidate-header">
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <span class="rank-pill">#\${c.rank}</span>
+                  <a class="file-link" onclick="openLocation('\${escapeAttr(c.fsPath)}', 1, 1)">
+                    \${escapeHtml(c.relativePath)}
+                  </a>
+                </div>
+                <span class="score-meter">Score \${c.score}</span>
+              </div>
+              <ul class="reasons-list">
+                \${c.reasons.map(reason => \`<li>\${escapeHtml(reason)}</li>\`).join('')}
+              </ul>
+            </div>
+          \`).join('')
+        : '<div style="font-size:11px; opacity:0.7;">No workspace modules linked directly to this error.</div>';
+
+      // Tests
+      const testsHtml = r.suggestedTests.length > 0
+        ? r.suggestedTests.map(t => \`
+            <div class="test-item">
+              <div>
+                <span class="badge \${t.testType === 'existing_suite' ? 'badge-observed' : 'badge-inferred'}">
+                  \${t.testType === 'existing_suite' ? 'Existing Suite' : 'Recommended'}
+                </span>
+                \${t.testPath ? \`
+                  <a class="file-link" onclick="openLocation('\${escapeAttr(t.testPath)}', 1, 1)">
+                    \${escapeHtml(t.relativePath)}
+                  </a>
+                \` : \`<span style="font-family:monospace; font-size:11px;">\${escapeHtml(t.relativePath)}</span>\`}
+              </div>
+              <div style="font-size:11px; color:var(--vscode-descriptionForeground); margin-left: 2px;">
+                \${escapeHtml(t.reason)}
+              </div>
+            </div>
+          \`).join('')
+        : '<div style="font-size:11px; opacity:0.7;">No relevant test suites discovered.</div>';
+
+      // Limitations
+      const limitationsHtml = r.limitations.length > 0
+        ? \`
+          <div class="card" style="border-left: 3px solid rgba(255,255,255,0.2);">
+            <div class="card-title">Limitations & Transparency</div>
+            <ul style="font-size:11px; padding-left:14px; color:var(--vscode-descriptionForeground);">
+              \${r.limitations.map(l => \`<li>\${escapeHtml(l)}</li>\`).join('')}
+            </ul>
+          </div>
+        \`
+        : '';
+
+      // AI Enrichment
+      const aiHtml = r.aiEnrichment
+        ? \`
+          <div class="card" style="border-left: 3px solid var(--badge-hypothesis);">
+            <div class="card-title">
+              <span>AI Hypothesis Synthesis</span>
+              <span class="badge badge-hypothesis">Unverified</span>
+            </div>
+            <div style="font-size:12px; font-weight:600;">\${escapeHtml(r.aiEnrichment.summary)}</div>
+            <ul style="font-size:11px; padding-left:14px; margin-top:4px;">
+              \${r.aiEnrichment.hypotheses.map(h => \`<li>\${escapeHtml(h)}</li>\`).join('')}
+            </ul>
+            <div style="font-size:10px; color:var(--vscode-descriptionForeground); font-style:italic; margin-top:6px;">
+              ⚠️ \${escapeHtml(r.aiEnrichment.disclaimer)}
+            </div>
+          </div>
+        \`
+        : '';
+
+      app.innerHTML = \`
+        <div class="header">
+          <div class="header-title">🔍 BugScope Findings</div>
+          <span class="offline-tag">100% Local</span>
+        </div>
+
+        <div class="card error-banner">
+          <div class="error-type">\${escapeHtml(r.errorSummary.type)}</div>
+          <div class="error-msg">\${escapeHtml(r.errorSummary.message)}</div>
+        </div>
+
+        \${primaryHtml}
+
+        <div class="card">
+          <div class="card-title">
+            <span>Impact Blast Radius</span>
+            <span>\${r.candidates.length} Modules</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            \${candidatesHtml}
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Targeted Test Coverage</div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            \${testsHtml}
+          </div>
+        </div>
+
+        \${aiHtml}
+        \${limitationsHtml}
+
+        <div style="display:flex; justify-content:flex-end; margin-top:4px;">
+          <button onclick="clearFindings()">Clear Findings</button>
+        </div>
+      \`;
+    }
+
+    function openLocation(file, line, col) {
+      vscode.postMessage({
+        action: 'OPEN_LOCATION',
+        file: file,
+        line: line,
+        column: col
+      });
+    }
+
+    function clearFindings() {
+      vscode.postMessage({ action: 'CLEAR' });
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function escapeAttr(text) {
+      if (!text) return '';
+      return String(text).replace(/'/g, "\\\\'").replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>`;
+  }
+}

@@ -1,0 +1,4 @@
+TypeError: Cannot read properties of undefined (reading 'rate')
+    at calculateDiscount (src/checkout.ts:27:30)
+    at processOrder (src/orderService.ts:9:20)
+    at Object.handleCheckout (src/routes/cart.ts:4:18)
