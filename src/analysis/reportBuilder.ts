@@ -64,7 +64,10 @@ export class ReportBuilder {
 
     const primaryLocation = resolvedFrames.find((f) => f.exists && f.isWithinWorkspace);
 
-    // Record observed stack frame evidence
+    // Record observed stack frame evidence and classify unresolvable frames
+    const runtimeInternalFrames: string[] = [];
+    const missingWorkspaceFiles: string[] = [];
+
     for (let i = 0; i < resolvedFrames.length; i++) {
       const frame = resolvedFrames[i];
       if (frame.exists && frame.isWithinWorkspace) {
@@ -79,8 +82,43 @@ export class ReportBuilder {
           weight: i === 0 ? 1.0 : 0.7
         });
       } else if (!frame.exists) {
-        limitations.push(`File in stack trace could not be resolved in workspace: ${frame.relativePath}`);
+        const p = (frame.relativePath || '').toLowerCase().replace(/\\/g, '/');
+        const isRuntime =
+          p.startsWith('node:') ||
+          p.startsWith('node:internal') ||
+          p.includes('[eval]') ||
+          p.includes('[eval]-wrapper') ||
+          p.startsWith('<') ||
+          p.includes('internal/process') ||
+          p.includes('internal/vm') ||
+          p.includes('internal/modules');
+
+        if (isRuntime) {
+          runtimeInternalFrames.push(frame.relativePath);
+        } else {
+          missingWorkspaceFiles.push(frame.relativePath);
+        }
       }
+    }
+
+    if (runtimeInternalFrames.length > 0) {
+      const distinctTypes = Array.from(
+        new Set(
+          runtimeInternalFrames.map((f) => {
+            const lower = f.toLowerCase();
+            if (lower.startsWith('node:')) return 'node:internal/*';
+            if (lower.includes('eval')) return '[eval]';
+            return f;
+          })
+        )
+      );
+      limitations.push(
+        `${runtimeInternalFrames.length} external runtime engine frame(s) (${distinctTypes.join(', ')}) excluded from workspace blast radius.`
+      );
+    }
+
+    for (const missing of missingWorkspaceFiles) {
+      limitations.push(`File in stack trace could not be resolved in workspace: ${missing}`);
     }
 
     // Identify primary workspace root
