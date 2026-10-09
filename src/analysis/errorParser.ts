@@ -39,10 +39,22 @@ export class ErrorParser {
   ];
 
   /**
+   * Strips ANSI escape sequences (colors, text formatting) commonly found in terminal outputs.
+   */
+  public static stripAnsiCodes(input: string): string {
+    if (!input) return '';
+    return input
+      .replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, '')
+      .replace(/\u001b\].*?(?:\u0007|\u001b\\)/g, '')
+      .replace(/\u001b[PX^_].*?\u001b\\/g, '');
+  }
+
+  /**
    * Main entry point: Parses raw selected text into structured ParsedError.
    */
   public static parse(rawInput: string): ParsedError {
-    const trimmed = (rawInput || '').trim();
+    const sanitized = this.stripAnsiCodes(rawInput || '');
+    const trimmed = sanitized.trim();
 
     if (!trimmed) {
       return {
@@ -233,11 +245,12 @@ export class ErrorParser {
    * Extracts error type and message from the first or last lines (supporting both JS and Python tracebacks).
    */
   private static extractErrorHeader(lines: string[]): { type: string; message: string } {
-    // Check first 5 lines (JS/TS style) and last 3 lines (Python/Go style)
-    const candidateLines = [
-      ...lines.slice(0, 5),
-      ...lines.slice(-3).reverse()
-    ];
+    // For Python tracebacks ("Traceback (most recent call last):"), check the bottom lines first
+    // so chained exceptions (raise ... from ...) lock onto the final fatal crash!
+    const isPythonTrace = lines.some((l) => /traceback\s*(?:\(most recent call last\))?:/i.test(l));
+    const candidateLines = isPythonTrace
+      ? [...lines.slice(-6).reverse(), ...lines.slice(0, 6)]
+      : [...lines.slice(0, 6), ...lines.slice(-6).reverse()];
 
     for (const line of candidateLines) {
       // Pattern: "TypeError: Cannot read properties of undefined" or "KeyError: 'discount'"

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { AnalysisReport, WebviewMessage, WebviewAction } from '../models/analysisResult';
+import { ReportBuilder } from '../analysis/reportBuilder';
 
 /**
  * ResultsViewProvider - Manages the native BugScope Webview in the sidebar.
@@ -44,6 +45,13 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'CLEAR':
           this.setIdleState();
+          break;
+        case 'COPY_REPORT':
+          if (this.currentReport) {
+            const md = ReportBuilder.formatReportToMarkdown(this.currentReport);
+            await vscode.env.clipboard.writeText(md);
+            vscode.window.showInformationMessage('BugScope AI: Diagnostic report copied to clipboard as Markdown.');
+          }
           break;
         case 'CONFIGURE_KEY':
           await vscode.commands.executeCommand('bugscope.configureApiKey');
@@ -465,6 +473,24 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
       font-weight: 600;
     }
     button:hover { background: var(--vscode-button-hoverBackground); }
+    .action-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--fg);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 5px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .action-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: var(--border);
+    }
   </style>
 </head>
 <body>
@@ -736,8 +762,13 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
         \${aiHtml}
         \${limitationsHtml}
 
-        <div style="display:flex; justify-content:flex-end; margin-top:4px;">
-          <button id="clear-btn">Clear Findings</button>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+          <button id="copy-btn" class="action-btn" title="Copy markdown summary for Slack / GitHub / Jira">
+            📋 Copy Markdown
+          </button>
+          <button id="clear-btn" class="action-btn">
+            Clear Findings
+          </button>
         </div>
       \`;
     }
@@ -757,6 +788,15 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
             column: col
           });
         }
+        return;
+      }
+
+      const copyBtn = e.target.closest('#copy-btn');
+      if (copyBtn) {
+        vscode.postMessage({ action: 'COPY_REPORT' });
+        const oldText = copyBtn.innerText;
+        copyBtn.innerText = '✅ Copied!';
+        setTimeout(() => { copyBtn.innerText = oldText; }, 1800);
         return;
       }
 

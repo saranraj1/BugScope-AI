@@ -98,4 +98,38 @@ describe('DependencyAnalyzer Tests', () => {
 
     assert.ok(evidence.length > 0);
   });
+
+  it('5. Correctly extracts multi-line parenthesized Python imports with comments', () => {
+    const pythonRoot = path.join(__dirname, 'fixtures', 'python-project');
+    const analyzer = new DependencyAnalyzer(pythonRoot);
+
+    const multiLineCode = `
+from checkout import (
+    calculate_discount, # main calculation function
+    validate_cart
+)
+`;
+    // Access private extractPythonImports via any cast for white-box unit test
+    const dummyPath = path.join(pythonRoot, 'src', 'dummy.py');
+    const imports = (analyzer as any).extractPythonImports(multiLineCode, dummyPath);
+
+    assert.ok(imports.length >= 1);
+    assert.ok(imports.some((p: string) => p.toLowerCase().includes('checkout.py')));
+  });
+
+  it('6. Resolves modern TypeScript @/ and ~/ path aliases against src/ directory', () => {
+    const projectRoot = path.join(__dirname, 'fixtures', 'sample-project');
+    const analyzer = new DependencyAnalyzer(projectRoot);
+
+    const aliasCode = `
+import { calculateDiscount } from '@/checkout';
+import { processOrder } from '~/orderService';
+`;
+    const dummyPath = path.join(projectRoot, 'src', 'consumer.ts');
+    const imports = (analyzer as any).extractImportSpecifiers(aliasCode, dummyPath);
+
+    assert.ok(imports.length >= 2);
+    assert.ok(imports.some((p: string) => p.toLowerCase().includes('checkout.ts')));
+    assert.ok(imports.some((p: string) => p.toLowerCase().includes('orderservice.ts')));
+  });
 });

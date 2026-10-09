@@ -83,4 +83,41 @@ describe('ErrorParser Automated Tests', () => {
     assert.ok(result.message.includes('0 Errors detected in example.py'));
     assert.strictEqual(result.frames.length, 0);
   });
+
+  it('8. Strips terminal ANSI escape codes and extracts frames cleanly', () => {
+    const ansiLog = `\u001b[31mTypeError: Cannot read properties of undefined (reading 'rate')\u001b[0m
+    \u001b[2mat calculateDiscount (\u001b[0m\u001b[36msrc/checkout.ts:27:18\u001b[0m\u001b[2m)\u001b[0m
+    at processOrder (src/orderService.ts:9:5)`;
+
+    const result = ErrorParser.parse(ansiLog);
+    assert.strictEqual(result.isError, true);
+    assert.strictEqual(result.errorType, 'TypeError');
+    assert.ok(result.message.includes("Cannot read properties of undefined"));
+    assert.strictEqual(result.frames.length, 2);
+    assert.strictEqual(result.frames[0].functionName, 'calculateDiscount');
+    assert.strictEqual(result.frames[0].line, 27);
+  });
+
+  it('9. Correctly prioritizes final fatal exception in Python chained traceback', () => {
+    const chainedTrace = `Traceback (most recent call last):
+  File "src/auth.py", line 10, in authenticate
+    raise ValueError("Token expired")
+ValueError: Token expired
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "src/routes/cart.py", line 12, in handle_checkout
+    return process_order(cart)
+  File "src/checkout.py", line 28, in calculate_discount
+    discount_rate = cart['discount']['rate']
+KeyError: 'discount'`;
+
+    const result = ErrorParser.parse(chainedTrace);
+    assert.strictEqual(result.isError, true);
+    assert.strictEqual(result.errorType, 'KeyError');
+    assert.ok(result.message.includes("'discount'"));
+    assert.strictEqual(result.frames[0].functionName, 'calculate_discount');
+    assert.strictEqual(result.frames[0].line, 28);
+  });
 });

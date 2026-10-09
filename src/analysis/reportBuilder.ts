@@ -249,4 +249,44 @@ export class ReportBuilder {
       limitations
     };
   }
+
+  /**
+   * Formats an AnalysisReport into a clean, markdown document suitable for Slack/Jira/GitHub.
+   */
+  public static formatReportToMarkdown(report: AnalysisReport): string {
+    const lines: string[] = [];
+    lines.push(`### 🔍 BugScope AI Diagnostic Report`);
+    lines.push(`- **Error**: \`${report.errorSummary.type}\` — ${report.errorSummary.message}`);
+    lines.push(`- **Timestamp**: ${report.timestamp}`);
+    if (report.primaryLocation && report.primaryLocation.exists) {
+      lines.push(`- **Throw Site**: \`${report.primaryLocation.relativePath}:${report.primaryLocation.line}\``);
+    }
+    lines.push('');
+    lines.push(`#### 🎯 Ranked Impact Candidates (Blast Radius)`);
+    lines.push(`| Rank | File | Confidence | Score | Key Signals |`);
+    lines.push(`|:---:|:---|:---:|:---:|:---|`);
+    for (const c of report.candidates) {
+      const tier = c.signals?.confidenceTier || (c.score >= 0.8 ? 'CRITICAL' : c.score >= 0.55 ? 'HIGH' : c.score >= 0.3 ? 'MEDIUM' : 'LOW');
+      const sig = `Stack ${Math.round((c.signals?.stackProximity || 0) * 100)}% · Dep ${Math.round((c.signals?.dependencyAdjacency || 0) * 100)}% · Symbol ${Math.round((c.signals?.symbolMatch || 0) * 100)}%`;
+      lines.push(`| #${c.rank} | \`${c.relativePath}\` | **${tier}** | ${c.score} | ${sig} |`);
+    }
+
+    if (report.suggestedTests.length > 0) {
+      lines.push('');
+      lines.push(`#### 🧪 Targeted Test Coverage`);
+      for (const t of report.suggestedTests) {
+        lines.push(`- **\`${t.relativePath}\`** (${t.testType === 'existing_suite' ? 'Active Suite' : 'Recommended'}): ${t.reason}`);
+      }
+    }
+
+    if (report.limitations.length > 0) {
+      lines.push('');
+      lines.push(`#### ⚠️ Limitations & Disclosures`);
+      for (const l of report.limitations) {
+        lines.push(`- ${l}`);
+      }
+    }
+
+    return lines.join('\n');
+  }
 }

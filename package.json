@@ -2,7 +2,7 @@
   "name": "bugscope-ai",
   "displayName": "BugScope AI",
   "description": "Local-first, evidence-driven error impact analysis and blast radius tracing inside VS Code.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "bugscope",
   "license": "MIT",
   "repository": {

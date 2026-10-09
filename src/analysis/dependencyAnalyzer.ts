@@ -247,11 +247,25 @@ export class DependencyAnalyzer {
     while ((match = importRegex.exec(content)) !== null) {
       const specifier = match[1];
 
-      // Only resolve relative project imports (starts with ./ or ../)
+      // Only resolve relative project imports (starts with ./ or ../) or path aliases (@/, ~/)
       if (specifier.startsWith('.')) {
         const resolved = this.resolveRelativeModule(sourceDir, specifier);
         if (resolved) {
           resolvedImports.push(resolved);
+        }
+      } else if (specifier.startsWith('@/') || specifier.startsWith('~/')) {
+        // Modern Next.js / TypeScript path aliases (@/ or ~/)
+        const aliasSub = specifier.substring(2);
+        const candidates = [
+          path.join(this.workspaceRoot, 'src', aliasSub),
+          path.join(this.workspaceRoot, aliasSub)
+        ];
+        for (const cand of candidates) {
+          const resolved = this.resolveFileWithExtensions(cand);
+          if (resolved) {
+            resolvedImports.push(resolved);
+            break;
+          }
         }
       }
     }
@@ -260,11 +274,9 @@ export class DependencyAnalyzer {
   }
 
   /**
-   * Resolves relative import specifiers to real files with extensions.
+   * Resolves a file path candidate against standard source code extensions.
    */
-  private resolveRelativeModule(sourceDir: string, specifier: string): string | null {
-    const basePath = path.resolve(sourceDir, specifier);
-
+  private resolveFileWithExtensions(basePath: string): string | null {
     // Direct check
     if (fs.existsSync(basePath) && fs.statSync(basePath).isFile()) {
       return basePath;
@@ -294,6 +306,14 @@ export class DependencyAnalyzer {
   }
 
   /**
+   * Resolves relative import specifiers to real files with extensions.
+   */
+  private resolveRelativeModule(sourceDir: string, specifier: string): string | null {
+    const basePath = path.resolve(sourceDir, specifier);
+    return this.resolveFileWithExtensions(basePath);
+  }
+
+  /**
    * Extracts Python imports (relative 'from . import ...' and workspace 'import ...')
    * and resolves them to concrete workspace .py or __init__.py files.
    */
@@ -306,7 +326,27 @@ export class DependencyAnalyzer {
       path.join(this.workspaceRoot, 'src')
     ].filter((dir) => fs.existsSync(dir));
 
-    const lines = content.split(/\r?\n/);
+    // Fold multi-line parenthesized imports into single logical statements
+    // e.g. from checkout import (\n  calculate_discount,\n  apply_coupon\n)
+    const foldedContent = content
+      .replace(/(from\s+[^\n]+?import\s*)\(([^)]+)\)/gs, (_, prefix, inner) => {
+        const cleanedInner = inner
+          .split(/\r?\n/)
+          .map((l: string) => l.split('#')[0].trim())
+          .filter(Boolean)
+          .join(' ');
+        return `${prefix} ${cleanedInner}`;
+      })
+      .replace(/(import\s*)\(([^)]+)\)/gs, (_, prefix, inner) => {
+        const cleanedInner = inner
+          .split(/\r?\n/)
+          .map((l: string) => l.split('#')[0].trim())
+          .filter(Boolean)
+          .join(' ');
+        return `${prefix} ${cleanedInner}`;
+      });
+
+    const lines = foldedContent.split(/\r?\n/);
 
     for (const rawLine of lines) {
       // Strip comments

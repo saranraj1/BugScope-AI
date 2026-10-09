@@ -10,7 +10,7 @@
 [![Platform](https://img.shields.io/badge/Platform-VS%20Code%20Extension-blue)](https://code.visualstudio.com/)
 [![Mode](https://img.shields.io/badge/Mode-Local--First%20%7C%20100%25%20Offline-green)](PLAN.md)
 [![Sprint](https://img.shields.io/badge/Sprint-NEXUS'26%20Hackathon%20(24h)-orange)](PLAN.md)
-[![Tests](https://img.shields.io/badge/Tests-19%2F19%20Passing-brightgreen)](test/)
+[![Tests](https://img.shields.io/badge/Tests-49%2F49%20Passing-brightgreen)](test/)
 
 </div>
 
@@ -32,7 +32,7 @@
 
 <div align="center">
 
-![BugScope AI Architecture Diagram](resources/architecture.svg)
+![BugScope AI Architecture Diagram](resources/architecture.png)
 
 </div>
 

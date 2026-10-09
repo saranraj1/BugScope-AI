@@ -126,4 +126,20 @@ describe('BugScope AI - End-to-End Workflow Tests', () => {
     assert.ok(report.evidence.some((e) => e.category === 'stack_frame'));
     assert.ok(report.evidence.some((e) => e.category === 'dependency_caller'));
   });
+
+  it('5. Formats AnalysisReport into structured, shareable Markdown summary', async () => {
+    const rawTrace = fs.readFileSync(tracePath, 'utf8');
+    const report = await ReportBuilder.analyze(rawTrace, {
+      workspaceRoots: [projectRoot]
+    });
+
+    const md = ReportBuilder.formatReportToMarkdown(report);
+
+    assert.ok(md.includes('### 🔍 BugScope AI Diagnostic Report'));
+    assert.ok(md.includes('TypeError'));
+    assert.ok(md.includes('#### 🎯 Ranked Impact Candidates'));
+    assert.ok(md.includes('| #1 |'));
+    assert.ok(md.includes('checkout.ts'));
+    assert.ok(md.includes('#### 🧪 Targeted Test Coverage'));
+  });
 });

@@ -184,4 +184,5 @@ export type WebviewAction =
   | { action: 'OPEN_LOCATION'; file: string; line: number; column?: number }
   | { action: 'RERUN_ANALYSIS' }
   | { action: 'CLEAR' }
+  | { action: 'COPY_REPORT' }
   | { action: 'CONFIGURE_KEY' };
