@@ -2,15 +2,21 @@ import * as vscode from 'vscode';
 import { ResultsViewProvider } from '../providers/resultsViewProvider';
 import { ReportBuilder } from '../analysis/reportBuilder';
 import { AiAdapter } from '../ai/aiAdapter';
+import { CredentialStore } from '../services/credentialStore';
 
 /**
  * Registers the bugscope.analyzeError command handler.
  */
 export function registerAnalyzeErrorCommand(
   context: vscode.ExtensionContext,
-  resultsProvider: ResultsViewProvider
+  resultsProvider: ResultsViewProvider,
+  credentialStore: CredentialStore
 ): vscode.Disposable {
   return vscode.commands.registerCommand('bugscope.analyzeError', async () => {
+    // 0. Check first-time user onboarding for optional API key
+    if (!credentialStore.hasPromptedFirstTime()) {
+      await credentialStore.checkAndPromptFirstTime();
+    }
     const editor = vscode.window.activeTextEditor;
 
     if (!editor) {
@@ -66,13 +72,13 @@ export function registerAnalyzeErrorCommand(
       if (aiEnabled) {
         const aiEndpoint = config.get<string>('ai.endpoint', 'http://localhost:11434/v1');
         const aiModel = config.get<string>('ai.model', 'llama3.2');
-        const aiApiKey = config.get<string>('ai.apiKey', '');
+        const aiApiKey = await credentialStore.getApiKey();
 
         const aiAdapter = new AiAdapter({
           enabled: true,
           endpoint: aiEndpoint,
           model: aiModel,
-          apiKey: aiApiKey ? aiApiKey.trim() : undefined
+          apiKey: aiApiKey
         });
 
         const enrichment = await aiAdapter.enrich(report);

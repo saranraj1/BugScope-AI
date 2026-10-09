@@ -58,6 +58,11 @@
         "command": "bugscope.clearAnalysis",
         "title": "BugScope AI: Clear Findings",
         "category": "BugScope"
+      },
+      {
+        "command": "bugscope.configureApiKey",
+        "title": "BugScope AI: Configure AI API Key (Secure Keychain)",
+        "category": "BugScope"
       }
     ],
     "menus": {

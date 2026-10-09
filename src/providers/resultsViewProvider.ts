@@ -13,7 +13,10 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
   private lastErrorMessage?: string;
   private lastLoadingText?: string;
 
-  constructor(private readonly extensionUri: vscode.Uri) {}
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly credentialStore?: any
+  ) {}
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -41,6 +44,9 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'CLEAR':
           this.setIdleState();
+          break;
+        case 'CONFIGURE_KEY':
+          await vscode.commands.executeCommand('bugscope.configureApiKey');
           break;
       }
     });
@@ -439,6 +445,11 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
           <div style="font-weight: 700; color: var(--accent); font-size: 11px; background: rgba(0,0,0,0.2); padding: 6px 10px; border-radius: 4px;">
             BugScope AI: Analyse Error Impact
           </div>
+          <div style="margin-top: 14px; border-top: 1px solid var(--card-border); padding-top: 10px; width: 100%;">
+            <button id="config-key-btn" style="width: 100%; font-size: 11px; padding: 6px 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--card-border); border-radius: 4px; color: var(--fg); cursor: pointer;">
+              🔐 Configure AI Key (OS Keychain)
+            </button>
+          </div>
         </div>
       \`;
     }
@@ -655,6 +666,13 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
       const clearBtn = e.target.closest('#clear-btn');
       if (clearBtn) {
         vscode.postMessage({ action: 'CLEAR' });
+        return;
+      }
+
+      const configKeyBtn = e.target.closest('#config-key-btn');
+      if (configKeyBtn) {
+        vscode.postMessage({ action: 'CONFIGURE_KEY' });
+        return;
       }
     });
 
