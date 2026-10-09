@@ -65,28 +65,45 @@ export class SymbolAnalyzer {
     }
 
     const matched: string[] = [];
+    const definedSymbols: string[] = [];
     const evidence: EvidenceRecord[] = [];
     const relName = path.basename(filePath);
 
     for (const token of tokens) {
+      const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       // Word boundary check
-      const regex = new RegExp(`\\b${token}\\b`);
+      const regex = new RegExp(`\\b${escaped}\\b`);
       if (regex.test(content)) {
         matched.push(token);
+
+        // Check for symbol definition or direct call/property pattern
+        const defPattern = new RegExp(`\\b(function|class|interface|type|const|let|var|def)\\s+${escaped}\\b|${escaped}\\s*\\(|\\.${escaped}\\b|\\b${escaped}\\s*:`, 'm');
+        if (defPattern.test(content)) {
+          definedSymbols.push(token);
+        }
       }
     }
 
     if (matched.length > 0) {
-      const ratio = Math.min(1.0, matched.length / Math.max(1, tokens.length));
+      const baseRatio = matched.length / Math.max(1, tokens.length);
+      // Give definition/call occurrences an evidential boost
+      const score = definedSymbols.length > 0
+        ? Math.min(1.0, Math.round((baseRatio * 0.75 + 0.25) * 100) / 100)
+        : Math.min(1.0, Math.round(baseRatio * 100) / 100);
+
+      const description = definedSymbols.length > 0
+        ? `${relName} defines or invokes error-relevant symbol(s): [${matched.join(', ')}] (declares/uses: ${definedSymbols.join(', ')})`
+        : `${relName} contains error-relevant symbol(s): [${matched.join(', ')}]`;
+
       evidence.push({
         tier: 'inferred',
         category: 'symbol_match',
-        description: `${relName} contains error-relevant symbol(s): [${matched.join(', ')}]`,
-        weight: ratio * 0.6
+        description,
+        weight: Math.min(0.9, score * 0.7)
       });
 
       return {
-        score: ratio,
+        score,
         matchedTokens: matched,
         evidence
       };

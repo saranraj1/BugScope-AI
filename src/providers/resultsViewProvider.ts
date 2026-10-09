@@ -351,6 +351,42 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
       padding-left: 14px;
     }
 
+    /* Confidence Badges & Signal Chips */
+    .confidence-badge {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .confidence-critical { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .confidence-high { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .confidence-medium { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
+    .confidence-low { background: rgba(156, 163, 175, 0.15); color: #9ca3af; border: 1px solid rgba(156, 163, 175, 0.3); }
+
+    .signals-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin: 3px 0;
+    }
+    .signal-tag {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--vscode-descriptionForeground);
+      font-family: var(--vscode-editor-font-family, monospace);
+    }
+    .signal-tag.synergy {
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+      border-color: rgba(16, 185, 129, 0.3);
+      font-weight: 600;
+    }
+
     /* Badges */
     .badge {
       display: inline-block;
@@ -537,22 +573,39 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
 
       // Candidates
       const candidatesHtml = r.candidates.length > 0
-        ? r.candidates.map(c => \`
+        ? r.candidates.map(c => {
+            const tier = c.signals?.confidenceTier || (c.score >= 0.8 ? 'CRITICAL' : c.score >= 0.55 ? 'HIGH' : c.score >= 0.3 ? 'MEDIUM' : 'LOW');
+            const stackPct = Math.round((c.signals?.stackProximity || 0) * 100);
+            const depPct = Math.round((c.signals?.dependencyAdjacency || 0) * 100);
+            const symPct = Math.round((c.signals?.symbolMatch || 0) * 100);
+            const testPct = Math.round((c.signals?.testCorrelation || 0) * 100);
+            const synergyBonus = c.signals?.synergyBonus ? Math.round(c.signals.synergyBonus * 100) : 0;
+
+            return \`
             <div class="candidate-item">
               <div class="candidate-header">
                 <div style="display:flex; align-items:center; gap:6px;">
                   <span class="rank-pill">#\${c.rank}</span>
+                  <span class="confidence-badge confidence-\${tier.toLowerCase()}">\${tier}</span>
                   <a class="file-link" data-file="\${escapeHtml(c.fsPath)}" data-line="1" data-col="1">
                     \${escapeHtml(c.relativePath)}
                   </a>
                 </div>
                 <span class="score-meter">Score \${c.score}</span>
               </div>
+              <div class="signals-bar">
+                <span class="signal-tag" title="Stack Trace Proximity">Stack \${stackPct}%</span>
+                <span class="signal-tag" title="Dependency Adjacency & Centrality">Dep \${depPct}%</span>
+                <span class="signal-tag" title="Symbol Identifier Match">Symbol \${symPct}%</span>
+                <span class="signal-tag" title="Test Suite Coverage">Test \${testPct}%</span>
+                \${synergyBonus > 0 ? \`<span class="signal-tag synergy" title="Multi-Vector Compound Synergy">⚡ +\${synergyBonus}%</span>\` : ''}
+              </div>
               <ul class="reasons-list">
                 \${c.reasons.map(reason => \`<li>\${escapeHtml(reason)}</li>\`).join('')}
               </ul>
             </div>
-          \`).join('')
+          \`;
+          }).join('')
         : '<div style="font-size:11px; opacity:0.7;">No workspace modules linked directly to this error.</div>';
 
       // Tests
