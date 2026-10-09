@@ -66,11 +66,13 @@ export function registerAnalyzeErrorCommand(
       if (aiEnabled) {
         const aiEndpoint = config.get<string>('ai.endpoint', 'http://localhost:11434/v1');
         const aiModel = config.get<string>('ai.model', 'llama3.2');
+        const aiApiKey = config.get<string>('ai.apiKey', '');
 
         const aiAdapter = new AiAdapter({
           enabled: true,
           endpoint: aiEndpoint,
-          model: aiModel
+          model: aiModel,
+          apiKey: aiApiKey ? aiApiKey.trim() : undefined
         });
 
         const enrichment = await aiAdapter.enrich(report);

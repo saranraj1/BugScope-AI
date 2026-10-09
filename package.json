@@ -87,12 +87,17 @@
         "bugscope.ai.endpoint": {
           "type": "string",
           "default": "http://localhost:11434/v1",
-          "description": "Optional local or remote OpenAI-compatible endpoint (e.g. Ollama or API)."
+          "description": "Optional local or remote OpenAI-compatible endpoint (e.g. Ollama http://localhost:11434/v1 or https://api.openai.com/v1)."
+        },
+        "bugscope.ai.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Optional API key for remote providers (leave blank for local Ollama or LM Studio)."
         },
         "bugscope.ai.model": {
           "type": "string",
           "default": "llama3.2",
-          "description": "Model identifier for optional enrichment."
+          "description": "Model identifier for optional enrichment (e.g. llama3.2, gpt-4o-mini)."
         },
         "bugscope.analysis.maxFilesScan": {
           "type": "number",

@@ -65,4 +65,22 @@ describe('BugScope AI - End-to-End Workflow Tests', () => {
     assert.strictEqual(enrichment, undefined);
     assert.ok(report.candidates.length > 0);
   });
+
+  it('3. AiAdapter safely accepts apiKey and fails gracefully if endpoint is unreachable', async () => {
+    const rawTrace = fs.readFileSync(tracePath, 'utf8');
+    const report = await ReportBuilder.analyze(rawTrace, {
+      workspaceRoots: [projectRoot]
+    });
+
+    const aiAdapter = new AiAdapter({
+      enabled: true,
+      endpoint: 'http://127.0.0.1:59998/v1',
+      model: 'gpt-4o-mini',
+      apiKey: 'sk-test-mock-key-12345',
+      timeoutMs: 300
+    });
+
+    const enrichment = await aiAdapter.enrich(report);
+    assert.strictEqual(enrichment, undefined);
+  });
 });
