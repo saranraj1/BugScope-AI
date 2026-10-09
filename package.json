@@ -26,7 +26,8 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onCommand:bugscope.analyzeError"
+    "onCommand:bugscope.analyzeError",
+    "onView:bugscope.resultsView"
   ],
   "contributes": {
     "viewsContainers": {

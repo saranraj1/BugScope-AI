@@ -83,11 +83,15 @@ export class DependencyAnalyzer {
     const connected = new Map<string, { distance: number; relation: 'importer' | 'dependency'; via: string }>();
     const evidence: EvidenceRecord[] = [];
 
-    const queue: Array<{ fsPath: string; hop: number; via: string }> = [];
+    const queue: Array<{
+      fsPath: string;
+      hop: number;
+      via: string;
+      relation: 'importer' | 'dependency';
+    }> = [];
 
     for (const target of targetFsPaths) {
-      const key = path.resolve(target).toLowerCase();
-      queue.push({ fsPath: target, hop: 0, via: 'target' });
+      queue.push({ fsPath: target, hop: 0, via: target, relation: 'importer' });
     }
 
     const visited = new Set<string>();
@@ -110,59 +114,61 @@ export class DependencyAnalyzer {
         const isDirect = current.hop === 1;
         connected.set(key, {
           distance: current.hop,
-          relation: 'importer',
+          relation: current.relation,
           via: current.via
         });
 
-        const targetBase = path.basename(current.via);
-        const currBase = path.basename(node.fsPath);
+        const viaBase = path.basename(current.via);
 
-        evidence.push({
-          tier: isDirect ? 'observed' : 'inferred',
-          category: 'dependency_caller',
-          description: isDirect
-            ? `${node.relativePath} directly imports ${targetBase}`
-            : `${node.relativePath} is in the call/import chain of ${targetBase} (${current.hop} hops)`,
-          location: {
-            relativePath: node.relativePath
-          },
-          weight: isDirect ? 0.8 : 0.4
-        });
+        if (current.relation === 'importer') {
+          evidence.push({
+            tier: isDirect ? 'observed' : 'inferred',
+            category: 'dependency_caller',
+            description: isDirect
+              ? `${node.relativePath} directly imports ${viaBase}`
+              : `${node.relativePath} is in the call/import chain of ${viaBase} (${current.hop} hops)`,
+            location: {
+              relativePath: node.relativePath
+            },
+            weight: isDirect ? 0.8 : 0.4
+          });
+        } else {
+          evidence.push({
+            tier: isDirect ? 'observed' : 'inferred',
+            category: 'dependency_import',
+            description: isDirect
+              ? `${viaBase} directly imports ${node.relativePath}`
+              : `${viaBase} depends on ${node.relativePath} (${current.hop} hops)`,
+            location: {
+              relativePath: node.relativePath
+            },
+            weight: isDirect ? 0.7 : 0.35
+          });
+        }
       }
 
       if (current.hop < maxHops) {
         // Trace files that import current (callers/dependents)
         for (const caller of node.importedBy) {
           if (!visited.has(caller.toLowerCase())) {
-            queue.push({ fsPath: caller, hop: current.hop + 1, via: node.fsPath });
+            queue.push({
+              fsPath: caller,
+              hop: current.hop + 1,
+              via: node.fsPath,
+              relation: 'importer'
+            });
           }
         }
 
         // Trace files imported by current (dependencies)
         for (const dep of node.imports) {
           if (!visited.has(dep.toLowerCase())) {
-            const depKey = dep.toLowerCase();
-            if (!connected.has(depKey) && current.hop + 1 <= maxHops) {
-              const isDirect = current.hop === 0;
-              const depNode = this.moduleGraph.get(depKey);
-              if (depNode) {
-                connected.set(depKey, {
-                  distance: current.hop + 1,
-                  relation: 'dependency',
-                  via: node.fsPath
-                });
-
-                evidence.push({
-                  tier: isDirect ? 'observed' : 'inferred',
-                  category: 'dependency_import',
-                  description: `${node.relativePath} imports ${depNode.relativePath}`,
-                  location: {
-                    relativePath: depNode.relativePath
-                  },
-                  weight: isDirect ? 0.7 : 0.35
-                });
-              }
-            }
+            queue.push({
+              fsPath: dep,
+              hop: current.hop + 1,
+              via: node.fsPath,
+              relation: 'dependency'
+            });
           }
         }
       }
@@ -220,9 +226,10 @@ export class DependencyAnalyzer {
     // Regex matching:
     // import ... from './target'
     // import './target'
+    // import('./target')
     // export ... from './target'
     // const x = require('./target')
-    const importRegex = /(?:import\s+(?:[\w\s{},*]+from\s+)?|export\s+(?:[\w\s{},*]+from\s+)?|require\s*\(\s*)['"]([^'"]+)['"]/g;
+    const importRegex = /(?:import\s+(?:[\w\s{},*]+from\s+)?|import\s*\(\s*|export\s+(?:[\w\s{},*]+from\s+)?|require\s*\(\s*)['"]([^'"]+)['"]/g;
 
     let match: RegExpExecArray | null;
     while ((match = importRegex.exec(content)) !== null) {
@@ -241,7 +248,7 @@ export class DependencyAnalyzer {
   }
 
   /**
-   * Resolves relative import specifiers to real files with extensions (.ts, .js, /index.ts).
+   * Resolves relative import specifiers to real files with extensions.
    */
   private resolveRelativeModule(sourceDir: string, specifier: string): string | null {
     const basePath = path.resolve(sourceDir, specifier);
@@ -251,8 +258,19 @@ export class DependencyAnalyzer {
       return basePath;
     }
 
-    // Try extensions
-    const extensions = ['.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.js'];
+    // Try extensions (including .tsx, .jsx, /index.tsx, .mjs, .cjs)
+    const extensions = [
+      '.ts',
+      '.tsx',
+      '.js',
+      '.jsx',
+      '.mjs',
+      '.cjs',
+      '/index.ts',
+      '/index.tsx',
+      '/index.js',
+      '/index.jsx'
+    ];
     for (const ext of extensions) {
       const candidate = basePath + ext;
       if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {

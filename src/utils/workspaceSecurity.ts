@@ -47,7 +47,7 @@ export class WorkspaceSecurity {
 
   /**
    * Safely resolves a path and ensures it stays strictly within the workspace root.
-   * Prevents directory traversal attacks.
+   * Resolves symlinks using fs.realpathSync to prevent symlink directory escape.
    */
   public static isPathWithinWorkspace(targetPath: string, workspaceRoot: string): boolean {
     if (!targetPath || !workspaceRoot) {
@@ -55,8 +55,23 @@ export class WorkspaceSecurity {
     }
 
     try {
-      const normalizedTarget = path.resolve(targetPath).toLowerCase();
-      const normalizedRoot = path.resolve(workspaceRoot).toLowerCase();
+      let resolvedTarget = path.resolve(targetPath);
+      let resolvedRoot = path.resolve(workspaceRoot);
+
+      // Resolve real filesystem paths to catch symlink escapes
+      if (fs.existsSync(resolvedTarget)) {
+        try {
+          resolvedTarget = fs.realpathSync(resolvedTarget);
+        } catch {}
+      }
+      if (fs.existsSync(resolvedRoot)) {
+        try {
+          resolvedRoot = fs.realpathSync(resolvedRoot);
+        } catch {}
+      }
+
+      const normalizedTarget = resolvedTarget.toLowerCase();
+      const normalizedRoot = resolvedRoot.toLowerCase();
 
       // Ensure root ends with separator for prefix check or exact match
       const rootPrefix = normalizedRoot.endsWith(path.sep)
@@ -70,11 +85,19 @@ export class WorkspaceSecurity {
   }
 
   /**
-   * Reads a file safely with byte bounds to avoid freezing the IDE host.
+   * Reads a file safely with byte bounds and sensitive file filters.
    */
-  public static readBoundedTextFile(filePath: string, maxBytes: number = 250_000): string | null {
+  public static readBoundedTextFile(
+    filePath: string,
+    maxBytes: number = 250_000,
+    workspaceRoot?: string
+  ): string | null {
     try {
-      if (this.isSensitiveFile(filePath)) {
+      if (!filePath || this.isSensitiveFile(filePath)) {
+        return null;
+      }
+
+      if (workspaceRoot && !this.isPathWithinWorkspace(filePath, workspaceRoot)) {
         return null;
       }
 

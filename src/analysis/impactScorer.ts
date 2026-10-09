@@ -98,8 +98,23 @@ export class ImpactScorer {
       });
     }
 
-    // Sort descending by score
-    scored.sort((a, b) => b.score - a.score);
+    // Sort descending by score with deterministic tie-breaking:
+    // 1. Higher score first
+    // 2. Direct stack frame match first
+    // 3. Dependency adjacency strength
+    // 4. Alphabetical tie-breaker on relativePath
+    scored.sort((a, b) => {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+      if (b.signals.stackProximity !== a.signals.stackProximity) {
+        return b.signals.stackProximity - a.signals.stackProximity;
+      }
+      if (b.signals.dependencyAdjacency !== a.signals.dependencyAdjacency) {
+        return b.signals.dependencyAdjacency - a.signals.dependencyAdjacency;
+      }
+      return a.relativePath.localeCompare(b.relativePath);
+    });
 
     // Assign 1-indexed ranks
     return scored.map((c, index) => ({

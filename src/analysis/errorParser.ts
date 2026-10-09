@@ -110,11 +110,12 @@ export class ErrorParser {
    */
   private static parseV8Frame(line: string): StackFrame | null {
     // Case 1: "at functionName (path:line:col)" or "at async functionName (path:line:col)"
-    const matchWithFunc = line.match(/^at\s+(?:async\s+)?([^\s(]+)?\s*\((.+):(\d+):(\d+)\)$/);
-    if (matchWithFunc) {
+    // Allow complex function names with spaces/aliases: e.g. "Object.handleCheckout [as handler]"
+    const matchWithFunc = line.match(/^at\s+(?:async\s+)?(?:(.+?)\s+)?\((.+?):(\d+):(\d+)\)$/);
+    if (matchWithFunc && matchWithFunc[2]) {
       const rawPath = matchWithFunc[2].trim();
       return {
-        functionName: matchWithFunc[1] || undefined,
+        functionName: matchWithFunc[1]?.trim() || undefined,
         rawPath: WorkspaceSecurity.sanitizePathString(rawPath),
         line: parseInt(matchWithFunc[3], 10),
         column: parseInt(matchWithFunc[4], 10),
@@ -136,11 +137,11 @@ export class ErrorParser {
     }
 
     // Case 3: "at functionName (path:line)" without column
-    const matchNoCol = line.match(/^at\s+([^\s(]+)?\s*\((.+):(\d+)\)$/);
-    if (matchNoCol) {
+    const matchNoCol = line.match(/^at\s+(?:async\s+)?(?:(.+?)\s+)?\((.+?):(\d+)\)$/);
+    if (matchNoCol && matchNoCol[2]) {
       const rawPath = matchNoCol[2].trim();
       return {
-        functionName: matchNoCol[1] || undefined,
+        functionName: matchNoCol[1]?.trim() || undefined,
         rawPath: WorkspaceSecurity.sanitizePathString(rawPath),
         line: parseInt(matchNoCol[3], 10),
         column: 1,
@@ -171,7 +172,7 @@ export class ErrorParser {
 
   /**
    * Parses generic path:line:col reference:
-   * e.g. "src/routes/cart.ts:88:24" or "checkout.ts:42"
+   * Handles Windows drive letters (C:\...) and POSIX relative paths.
    */
   private static parseGenericPathFrame(line: string): StackFrame | null {
     // Skip if it looks like arbitrary code or markdown header
@@ -179,16 +180,16 @@ export class ErrorParser {
       return null;
     }
 
-    const match = line.match(/([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+):(\d+)(?::(\d+))?/);
+    // Handle Windows drive letter (e.g. C:\...) or standard path
+    const match = line.match(/(?:([a-zA-Z]:[\\/][^:\r\n]+)|([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+)):(\d+)(?::(\d+))?/);
     if (match) {
-      const candidatePath = match[1];
-      // Basic sanity check on extension
+      const candidatePath = (match[1] || match[2]).trim();
       const validExts = /\.(ts|tsx|js|jsx|mjs|cjs|py|java|go|rs|cpp|c|h|cs|rb|php)$/i;
       if (validExts.test(candidatePath)) {
         return {
           rawPath: WorkspaceSecurity.sanitizePathString(candidatePath),
-          line: parseInt(match[2], 10),
-          column: match[3] ? parseInt(match[3], 10) : 1,
+          line: parseInt(match[3], 10),
+          column: match[4] ? parseInt(match[4], 10) : 1,
           rawFrame: line
         };
       }

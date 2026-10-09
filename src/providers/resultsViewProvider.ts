@@ -113,14 +113,25 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Safely opens a file and focuses the target line in the VS Code editor.
+   * Clamps line/col numbers to valid document bounds and verifies workspace boundaries.
    */
   private async openSourceLocation(file: string, line: number, column?: number): Promise<void> {
     try {
-      let targetUri: vscode.Uri;
-      if (vscode.Uri.parse(file).scheme === 'file') {
-        targetUri = vscode.Uri.file(file);
-      } else {
-        targetUri = vscode.Uri.file(file);
+      if (!file) {
+        return;
+      }
+
+      const targetUri = vscode.Uri.file(file);
+
+      // Verify file is within permitted workspace boundaries
+      const workspaceFolders = vscode.workspace.workspaceFolders || [];
+      const isAllowed = workspaceFolders.some((wf) =>
+        targetUri.fsPath.toLowerCase().startsWith(wf.uri.fsPath.toLowerCase())
+      ) || workspaceFolders.length === 0;
+
+      if (!isAllowed) {
+        vscode.window.showWarningMessage('BugScope AI: Access denied — target path is outside workspace boundaries.');
+        return;
       }
 
       const doc = await vscode.workspace.openTextDocument(targetUri);
@@ -129,10 +140,15 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
         preserveFocus: false
       });
 
-      const zeroLine = Math.max(0, (line || 1) - 1);
-      const zeroCol = Math.max(0, (column || 1) - 1);
-      const pos = new vscode.Position(zeroLine, zeroCol);
+      // Clamp line within valid range (0 to doc.lineCount - 1)
+      const maxLine = Math.max(0, doc.lineCount - 1);
+      const clampedLine = Math.min(Math.max(0, (line || 1) - 1), maxLine);
 
+      // Clamp column within valid range for that line
+      const lineLength = doc.lineAt(clampedLine).text.length;
+      const clampedCol = Math.min(Math.max(0, (column || 1) - 1), lineLength);
+
+      const pos = new vscode.Position(clampedLine, clampedCol);
       editor.selection = new vscode.Selection(pos, pos);
       editor.revealRange(
         new vscode.Range(pos, pos),
@@ -491,7 +507,6 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
             </div>
           \`;
         }
-
         primaryHtml = \`
           <div class="card">
             <div class="card-title">
@@ -499,7 +514,7 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
               <span class="badge badge-observed">Observed Fact</span>
             </div>
             <div>
-              <a class="file-link" onclick="openLocation('\${escapeAttr(primaryLoc.fsPath)}', \${primaryLoc.line}, \${primaryLoc.column})">
+              <a class="file-link" data-file="\${escapeHtml(primaryLoc.fsPath)}" data-line="\${primaryLoc.line}" data-col="\${primaryLoc.column}">
                 📄 \${escapeHtml(primaryLoc.relativePath)}:\${primaryLoc.line}
               </a>
             </div>
@@ -515,7 +530,7 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
               <div class="candidate-header">
                 <div style="display:flex; align-items:center; gap:6px;">
                   <span class="rank-pill">#\${c.rank}</span>
-                  <a class="file-link" onclick="openLocation('\${escapeAttr(c.fsPath)}', 1, 1)">
+                  <a class="file-link" data-file="\${escapeHtml(c.fsPath)}" data-line="1" data-col="1">
                     \${escapeHtml(c.relativePath)}
                   </a>
                 </div>
@@ -537,7 +552,7 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
                   \${t.testType === 'existing_suite' ? 'Existing Suite' : 'Recommended'}
                 </span>
                 \${t.testPath ? \`
-                  <a class="file-link" onclick="openLocation('\${escapeAttr(t.testPath)}', 1, 1)">
+                  <a class="file-link" data-file="\${escapeHtml(t.testPath)}" data-line="1" data-col="1">
                     \${escapeHtml(t.relativePath)}
                   </a>
                 \` : \`<span style="font-family:monospace; font-size:11px;">\${escapeHtml(t.relativePath)}</span>\`}
@@ -614,23 +629,34 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
         \${limitationsHtml}
 
         <div style="display:flex; justify-content:flex-end; margin-top:4px;">
-          <button onclick="clearFindings()">Clear Findings</button>
+          <button id="clear-btn">Clear Findings</button>
         </div>
       \`;
     }
 
-    function openLocation(file, line, col) {
-      vscode.postMessage({
-        action: 'OPEN_LOCATION',
-        file: file,
-        line: line,
-        column: col
-      });
-    }
+    // Event delegation for opening locations and clearing findings
+    document.addEventListener('click', (e) => {
+      const link = e.target.closest('[data-file]');
+      if (link) {
+        const file = link.getAttribute('data-file');
+        const line = parseInt(link.getAttribute('data-line') || '1', 10);
+        const col = parseInt(link.getAttribute('data-col') || '1', 10);
+        if (file) {
+          vscode.postMessage({
+            action: 'OPEN_LOCATION',
+            file: file,
+            line: line,
+            column: col
+          });
+        }
+        return;
+      }
 
-    function clearFindings() {
-      vscode.postMessage({ action: 'CLEAR' });
-    }
+      const clearBtn = e.target.closest('#clear-btn');
+      if (clearBtn) {
+        vscode.postMessage({ action: 'CLEAR' });
+      }
+    });
 
     function escapeHtml(text) {
       if (!text) return '';
@@ -640,11 +666,6 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
-    }
-
-    function escapeAttr(text) {
-      if (!text) return '';
-      return String(text).replace(/'/g, "\\\\'").replace(/"/g, '&quot;');
     }
   </script>
 </body>
