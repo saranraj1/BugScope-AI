@@ -30,6 +30,15 @@
 
 ## 🏗️ Architecture
 
+<div align="center">
+
+![BugScope AI Architecture Diagram](resources/architecture.svg)
+
+</div>
+
+<details>
+<summary><b>🔍 View Mermaid Source Diagram</b></summary>
+
 ```mermaid
 flowchart TD
     subgraph UI ["VS Code UI Layer"]
@@ -96,6 +105,8 @@ flowchart TD
     class AIAdapter,ValidateEnrichment,CombinedReport ai;
     class CheckAI decision;
 ```
+
+</details>
 
 ---
 

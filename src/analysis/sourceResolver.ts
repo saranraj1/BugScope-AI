@@ -22,7 +22,7 @@ export class SourceResolver {
   private workspaceRoots: string[];
   private openDocuments: Map<string, TextDocumentLike>;
 
-  constructor(workspaceRoots: string[], openDocuments: TextDocumentLike[] = []) {
+  constructor(workspaceRoots: string[], openDocuments: readonly TextDocumentLike[] = []) {
     this.workspaceRoots = workspaceRoots.map((r) => path.resolve(r));
     this.openDocuments = new Map();
     for (const doc of openDocuments) {

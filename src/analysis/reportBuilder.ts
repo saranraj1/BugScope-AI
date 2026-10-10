@@ -16,7 +16,7 @@ import { ImpactScorer, CandidateContext } from './impactScorer';
 
 export interface AnalyzerOptions {
   workspaceRoots: string[];
-  openDocuments?: TextDocumentLike[];
+  openDocuments?: readonly TextDocumentLike[];
   maxFilesScan?: number;
   maxHops?: number;
 }

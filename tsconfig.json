@@ -13,5 +13,5 @@
     "moduleResolution": "node"
   },
   "include": ["src/**/*", "test/**/*"],
-  "exclude": ["node_modules", ".vscode-test", "out"]
+  "exclude": ["node_modules", ".vscode-test", "out", "test/fixtures"]
 }
