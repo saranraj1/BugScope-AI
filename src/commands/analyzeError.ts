@@ -2,50 +2,100 @@ import * as vscode from 'vscode';
 import { ResultsViewProvider } from '../providers/resultsViewProvider';
 import { ReportBuilder } from '../analysis/reportBuilder';
 import { AiAdapter } from '../ai/aiAdapter';
+import { CredentialStore } from '../services/credentialStore';
 
 /**
  * Registers the bugscope.analyzeError command handler.
  */
 export function registerAnalyzeErrorCommand(
   context: vscode.ExtensionContext,
-  resultsProvider: ResultsViewProvider
+  resultsProvider: ResultsViewProvider,
+  credentialStore: CredentialStore
 ): vscode.Disposable {
   return vscode.commands.registerCommand('bugscope.analyzeError', async () => {
+    // 0. Check first-time user onboarding for optional API key
+    if (!credentialStore.hasPromptedFirstTime()) {
+      await credentialStore.checkAndPromptFirstTime();
+    }
     const editor = vscode.window.activeTextEditor;
+    let selectedText = '';
 
-    if (!editor) {
-      vscode.window.showWarningMessage('BugScope AI: No active editor found. Open a file and select an error.');
-      return;
+    // 1. Try active editor selection
+    if (editor && editor.selection && !editor.selection.isEmpty) {
+      selectedText = editor.document.getText(editor.selection).trim();
     }
 
-    const selection = editor.selection;
-    const selectedText = editor.document.getText(selection).trim();
+    // 2. If no editor selection, check if the terminal has a genuine active selection
+    if (!selectedText) {
+      const prevClip = (await vscode.env.clipboard.readText()) || '';
+      const sentinel = `__BUGSCOPE_SENTINEL_${Date.now()}__`;
+      await vscode.env.clipboard.writeText(sentinel);
+      try {
+        await vscode.commands.executeCommand('workbench.action.terminal.copySelection');
+      } catch {}
+      const afterCopy = (await vscode.env.clipboard.readText()) || '';
+      if (afterCopy && afterCopy !== sentinel && afterCopy.trim().length > 0) {
+        selectedText = afterCopy.trim();
+      } else {
+        // Nothing was selected in terminal — restore previous clipboard
+        await vscode.env.clipboard.writeText(prevClip);
+      }
+    }
+
+    // 3. If still empty, check active editor file diagnostics or verify clean file state (0 errors)
+    if (!selectedText && editor) {
+      const diagnostics = vscode.languages.getDiagnostics(editor.document.uri);
+      const errors = diagnostics.filter((d) => d.severity === vscode.DiagnosticSeverity.Error);
+      const relPath = vscode.workspace.asRelativePath(editor.document.uri);
+
+      if (errors.length > 0) {
+        const topErr = errors[0];
+        const line = topErr.range.start.line + 1;
+        const col = topErr.range.start.character + 1;
+        selectedText = `${topErr.source || 'Error'}: ${topErr.message}\n    at ${relPath}:${line}:${col}`;
+      } else {
+        // Active file has 0 errors!
+        selectedText = `CleanFileCheck: ${relPath}`;
+      }
+    }
+
+    // 4. If still empty and no active editor: Provide keyboard input prompt
+    if (!selectedText) {
+      const input = await vscode.window.showInputBox({
+        title: 'BugScope AI: Analyse Error',
+        prompt: 'Paste the error message or stack trace from your terminal or logs (Ctrl+V / Cmd+V)',
+        placeHolder: 'e.g. TypeError: ... or Python traceback...',
+        ignoreFocusOut: true
+      });
+      if (input && input.trim()) {
+        selectedText = input.trim();
+      }
+    }
 
     if (!selectedText) {
-      vscode.window.showInformationMessage(
-        'BugScope AI: Please highlight an error message or stack trace in the editor first.'
-      );
       resultsProvider.setEmptyState(
-        'Empty selection detected.',
-        'Please highlight a stack trace, exception banner, or error log line in your editor and right-click.'
+        'No error text selected.',
+        'Highlight error text in your editor or terminal and press F4, or paste it directly.'
       );
-      // Focus sidebar
       await vscode.commands.executeCommand('bugscope.resultsView.focus');
       return;
     }
 
-    // 1. Reveal results view and display loading state
+    // 4. Reveal results view and display loading state
     resultsProvider.setLoadingState(selectedText);
     await vscode.commands.executeCommand('bugscope.resultsView.focus');
 
-    // 2. Collect workspace options
+    // 5. Collect workspace options
     const workspaceFolders = vscode.workspace.workspaceFolders || [];
     const workspaceRoots = workspaceFolders.map((f) => f.uri.fsPath);
 
     if (workspaceRoots.length === 0) {
-      // Use directory of active file if no multi-root workspace
-      const activeFileDir = vscode.Uri.joinPath(editor.document.uri, '..').fsPath;
-      workspaceRoots.push(activeFileDir);
+      if (editor) {
+        const activeFileDir = vscode.Uri.joinPath(editor.document.uri, '..').fsPath;
+        workspaceRoots.push(activeFileDir);
+      } else {
+        workspaceRoots.push(process.cwd());
+      }
     }
 
     const config = vscode.workspace.getConfiguration('bugscope');
@@ -66,13 +116,13 @@ export function registerAnalyzeErrorCommand(
       if (aiEnabled) {
         const aiEndpoint = config.get<string>('ai.endpoint', 'http://localhost:11434/v1');
         const aiModel = config.get<string>('ai.model', 'llama3.2');
-        const aiApiKey = config.get<string>('ai.apiKey', '');
+        const aiApiKey = await credentialStore.getApiKey();
 
         const aiAdapter = new AiAdapter({
           enabled: true,
           endpoint: aiEndpoint,
           model: aiModel,
-          apiKey: aiApiKey ? aiApiKey.trim() : undefined
+          apiKey: aiApiKey
         });
 
         const enrichment = await aiAdapter.enrich(report);

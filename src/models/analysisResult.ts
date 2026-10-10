@@ -88,6 +88,8 @@ export interface EvidenceRecord {
   weight: number;
 }
 
+export type ConfidenceTier = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
 export interface ImpactSignals {
   /** Stack trace proximity score (0.0 - 1.0) */
   stackProximity: number;
@@ -97,6 +99,10 @@ export interface ImpactSignals {
   symbolMatch: number;
   /** Test suite correlation score (0.0 - 1.0) */
   testCorrelation: number;
+  /** Multi-vector evidence synergy bonus (0.0 - 0.10) */
+  synergyBonus?: number;
+  /** Blast radius / operational confidence classification */
+  confidenceTier?: ConfidenceTier;
 }
 
 export interface CandidateFile {
@@ -177,4 +183,5 @@ export type WebviewMessage =
 export type WebviewAction =
   | { action: 'OPEN_LOCATION'; file: string; line: number; column?: number }
   | { action: 'RERUN_ANALYSIS' }
-  | { action: 'CLEAR' };
+  | { action: 'CLEAR' }
+  | { action: 'CONFIGURE_KEY' };

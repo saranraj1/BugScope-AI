@@ -64,7 +64,10 @@ export class ReportBuilder {
 
     const primaryLocation = resolvedFrames.find((f) => f.exists && f.isWithinWorkspace);
 
-    // Record observed stack frame evidence
+    // Record observed stack frame evidence and classify unresolvable frames
+    const runtimeInternalFrames: string[] = [];
+    const missingWorkspaceFiles: string[] = [];
+
     for (let i = 0; i < resolvedFrames.length; i++) {
       const frame = resolvedFrames[i];
       if (frame.exists && frame.isWithinWorkspace) {
@@ -79,8 +82,43 @@ export class ReportBuilder {
           weight: i === 0 ? 1.0 : 0.7
         });
       } else if (!frame.exists) {
-        limitations.push(`File in stack trace could not be resolved in workspace: ${frame.relativePath}`);
+        const p = (frame.relativePath || '').toLowerCase().replace(/\\/g, '/');
+        const isRuntime =
+          p.startsWith('node:') ||
+          p.startsWith('node:internal') ||
+          p.includes('[eval]') ||
+          p.includes('[eval]-wrapper') ||
+          p.startsWith('<') ||
+          p.includes('internal/process') ||
+          p.includes('internal/vm') ||
+          p.includes('internal/modules');
+
+        if (isRuntime) {
+          runtimeInternalFrames.push(frame.relativePath);
+        } else {
+          missingWorkspaceFiles.push(frame.relativePath);
+        }
       }
+    }
+
+    if (runtimeInternalFrames.length > 0) {
+      const distinctTypes = Array.from(
+        new Set(
+          runtimeInternalFrames.map((f) => {
+            const lower = f.toLowerCase();
+            if (lower.startsWith('node:')) return 'node:internal/*';
+            if (lower.includes('eval')) return '[eval]';
+            return f;
+          })
+        )
+      );
+      limitations.push(
+        `${runtimeInternalFrames.length} external runtime engine frame(s) (${distinctTypes.join(', ')}) excluded from workspace blast radius.`
+      );
+    }
+
+    for (const missing of missingWorkspaceFiles) {
+      limitations.push(`File in stack trace could not be resolved in workspace: ${missing}`);
     }
 
     // Identify primary workspace root
@@ -105,6 +143,7 @@ export class ReportBuilder {
     const candidateMap = new Map<string, CandidateContext>();
 
     // Add resolved stack frame files
+    let workspaceDepth = 0;
     for (let i = 0; i < resolvedFrames.length; i++) {
       const f = resolvedFrames[i];
       if (f.exists && f.isWithinWorkspace) {
@@ -113,22 +152,39 @@ export class ReportBuilder {
           const symResult = SymbolAnalyzer.matchSymbolsInFile(f.fsPath, errorTokens);
           allEvidence.push(...symResult.evidence);
 
+          const node = depAnalyzer.getNode(f.fsPath);
+          const importedByCount = node ? node.importedBy.length : 0;
+
           candidateMap.set(key, {
             fsPath: f.fsPath,
             relativePath: f.relativePath,
             isStackFrame: true,
             stackDepth: i,
+            workspaceStackDepth: workspaceDepth,
+            isTopWorkspaceFrame: workspaceDepth === 0,
+            importedByCount,
             symbolMatchScore: symResult.score,
             testScore: 0,
             evidence: []
           });
+          workspaceDepth++;
         }
       }
     }
 
-    // Add connected dependency files
+    // Add connected dependency files and enrich existing stack candidates
     for (const [key, depInfo] of connectedFiles.entries()) {
-      if (!candidateMap.has(key)) {
+      const existing = candidateMap.get(key);
+      if (existing) {
+        // Corroborate existing stack frame candidate with dependency graph evidence
+        if (existing.dependencyDistance === undefined || depInfo.distance < existing.dependencyDistance) {
+          existing.dependencyDistance = depInfo.distance;
+          existing.dependencyRelation = depInfo.relation;
+        }
+        if (depInfo.importedByCount !== undefined) {
+          existing.importedByCount = Math.max(existing.importedByCount || 0, depInfo.importedByCount);
+        }
+      } else {
         const relPath = path.relative(primaryRoot, key).replace(/\\/g, '/');
         const symResult = SymbolAnalyzer.matchSymbolsInFile(key, errorTokens);
         allEvidence.push(...symResult.evidence);
@@ -139,6 +195,7 @@ export class ReportBuilder {
           isStackFrame: false,
           dependencyDistance: depInfo.distance,
           dependencyRelation: depInfo.relation,
+          importedByCount: depInfo.importedByCount,
           symbolMatchScore: symResult.score,
           testScore: 0,
           evidence: []

@@ -1,13 +1,29 @@
 import * as vscode from 'vscode';
 import { ResultsViewProvider } from './providers/resultsViewProvider';
 import { registerAnalyzeErrorCommand } from './commands/analyzeError';
+import { CredentialStore } from './services/credentialStore';
 
 /**
  * Extension entry point activated when commands are invoked or views revealed.
  */
 export function activate(context: vscode.ExtensionContext) {
+  const uiHost = {
+    showInputBox: (opts: any) => vscode.window.showInputBox(opts),
+    showInformationMessage: (msg: string, ...items: string[]) =>
+      vscode.window.showInformationMessage(msg, ...items),
+    enableAiInConfig: async () => {
+      const config = vscode.workspace.getConfiguration('bugscope');
+      await config.update('ai.enabled', true, vscode.ConfigurationTarget.Global);
+    },
+    getConfigApiKey: () => {
+      const config = vscode.workspace.getConfiguration('bugscope');
+      return config.get<string>('ai.apiKey');
+    }
+  };
+  const credentialStore = new CredentialStore(context.secrets, context.globalState, uiHost);
+
   // 1. Register sidebar WebviewView provider
-  const resultsProvider = new ResultsViewProvider(context.extensionUri);
+  const resultsProvider = new ResultsViewProvider(context.extensionUri, credentialStore);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ResultsViewProvider.viewType, resultsProvider, {
       webviewOptions: { retainContextWhenHidden: true }
@@ -15,14 +31,34 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   // 2. Register main analysis command
-  context.subscriptions.push(registerAnalyzeErrorCommand(context, resultsProvider));
+  context.subscriptions.push(registerAnalyzeErrorCommand(context, resultsProvider, credentialStore));
 
-  // 3. Register clear command
+  // 3. Register secure API key configuration command
+  context.subscriptions.push(
+    vscode.commands.registerCommand('bugscope.configureApiKey', async () => {
+      await credentialStore.promptConfigureApiKey();
+    })
+  );
+
+  // 4. Register clear command
   context.subscriptions.push(
     vscode.commands.registerCommand('bugscope.clearAnalysis', () => {
       resultsProvider.setIdleState();
     })
   );
+
+  // 5. Ensure terminal shortcuts skip the shell so keys are intercepted directly by BugScope AI
+  try {
+    const termConfig = vscode.workspace.getConfiguration('terminal.integrated');
+    const skipList = termConfig.get<string[]>('commandsToSkipShell') || [];
+    if (!skipList.includes('bugscope.analyzeError')) {
+      termConfig.update(
+        'commandsToSkipShell',
+        [...skipList, 'bugscope.analyzeError'],
+        vscode.ConfigurationTarget.Global
+      );
+    }
+  } catch {}
 }
 
 export function deactivate() {

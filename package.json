@@ -2,7 +2,7 @@
   "name": "bugscope-ai",
   "displayName": "BugScope AI",
   "description": "Local-first, evidence-driven error impact analysis and blast radius tracing inside VS Code.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "bugscope",
   "license": "MIT",
   "repository": {
@@ -58,6 +58,33 @@
         "command": "bugscope.clearAnalysis",
         "title": "BugScope AI: Clear Findings",
         "category": "BugScope"
+      },
+      {
+        "command": "bugscope.configureApiKey",
+        "title": "BugScope AI: Configure AI API Key (Secure Keychain)",
+        "category": "BugScope"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "bugscope.analyzeError",
+        "key": "f4",
+        "mac": "f4"
+      },
+      {
+        "command": "bugscope.analyzeError",
+        "key": "shift+f4",
+        "mac": "shift+f4"
+      },
+      {
+        "command": "bugscope.analyzeError",
+        "key": "alt+shift+b",
+        "mac": "alt+shift+b"
+      },
+      {
+        "command": "bugscope.analyzeError",
+        "key": "alt+shift+e",
+        "mac": "alt+shift+e"
       }
     ],
     "menus": {
@@ -65,6 +92,12 @@
         {
           "command": "bugscope.analyzeError",
           "when": "editorHasSelection",
+          "group": "navigation@10"
+        }
+      ],
+      "terminal/context": [
+        {
+          "command": "bugscope.analyzeError",
           "group": "navigation@10"
         }
       ],

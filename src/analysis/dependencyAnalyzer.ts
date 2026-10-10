@@ -67,20 +67,27 @@ export class DependencyAnalyzer {
   }
 
   /**
+   * Returns the module graph node for a given file path if indexed.
+   */
+  public getNode(fsPath: string): ModuleNode | undefined {
+    return this.moduleGraph.get(path.resolve(fsPath).toLowerCase());
+  }
+
+  /**
    * Finds all modules connected to target files within maxHops.
    */
   public findConnectedModules(
     targetFsPaths: string[],
     maxHops: number = 2
   ): {
-    connectedFiles: Map<string, { distance: number; relation: 'importer' | 'dependency'; via: string }>;
+    connectedFiles: Map<string, { distance: number; relation: 'importer' | 'dependency'; via: string; importedByCount?: number }>;
     evidence: EvidenceRecord[];
   } {
     if (this.moduleGraph.size === 0) {
       this.buildGraph();
     }
 
-    const connected = new Map<string, { distance: number; relation: 'importer' | 'dependency'; via: string }>();
+    const connected = new Map<string, { distance: number; relation: 'importer' | 'dependency'; via: string; importedByCount?: number }>();
     const evidence: EvidenceRecord[] = [];
 
     const queue: Array<{
@@ -115,7 +122,8 @@ export class DependencyAnalyzer {
         connected.set(key, {
           distance: current.hop,
           relation: current.relation,
-          via: current.via
+          via: current.via,
+          importedByCount: node.importedBy.length
         });
 
         const viaBase = path.basename(current.via);

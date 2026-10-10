@@ -13,7 +13,10 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
   private lastErrorMessage?: string;
   private lastLoadingText?: string;
 
-  constructor(private readonly extensionUri: vscode.Uri) {}
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly credentialStore?: any
+  ) {}
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -42,6 +45,9 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
         case 'CLEAR':
           this.setIdleState();
           break;
+        case 'CONFIGURE_KEY':
+          await vscode.commands.executeCommand('bugscope.configureApiKey');
+          break;
       }
     });
 
@@ -54,6 +60,7 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
    */
   public setLoadingState(selectionText: string): void {
     this.currentState = 'loading';
+    this.currentReport = undefined; // Immediately clear previous report!
     this.lastLoadingText = selectionText;
     this.postMessage({ type: 'STATE_LOADING', selectionText });
   }
@@ -72,6 +79,7 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
    */
   public setEmptyState(message: string, hint: string): void {
     this.currentState = 'empty';
+    this.currentReport = undefined;
     this.postMessage({ type: 'STATE_EMPTY', message, hint });
   }
 
@@ -80,6 +88,7 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
    */
   public setErrorState(errorMessage: string, details?: string): void {
     this.currentState = 'error';
+    this.currentReport = undefined;
     this.lastErrorMessage = errorMessage;
     this.postMessage({ type: 'STATE_ERROR', errorMessage, details });
   }
@@ -90,6 +99,8 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
   public setIdleState(): void {
     this.currentState = 'idle';
     this.currentReport = undefined;
+    this.lastLoadingText = undefined;
+    this.lastErrorMessage = undefined;
     this.postMessage({ type: 'STATE_IDLE' });
   }
 
@@ -267,6 +278,28 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
       word-break: break-word;
     }
 
+    /* Clean Scope Banner */
+    .clean-banner {
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      border-left: 3px solid #10b981;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .clean-title {
+      font-weight: 700;
+      color: #10b981;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .clean-msg {
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+      margin-top: 4px;
+    }
+
     /* Clickable Link */
     .file-link {
       color: var(--accent);
@@ -343,6 +376,42 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
       font-size: 11px;
       color: var(--vscode-descriptionForeground);
       padding-left: 14px;
+    }
+
+    /* Confidence Badges & Signal Chips */
+    .confidence-badge {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .confidence-critical { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .confidence-high { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .confidence-medium { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
+    .confidence-low { background: rgba(156, 163, 175, 0.15); color: #9ca3af; border: 1px solid rgba(156, 163, 175, 0.3); }
+
+    .signals-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin: 3px 0;
+    }
+    .signal-tag {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--vscode-descriptionForeground);
+      font-family: var(--vscode-editor-font-family, monospace);
+    }
+    .signal-tag.synergy {
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+      border-color: rgba(16, 185, 129, 0.3);
+      font-weight: 600;
     }
 
     /* Badges */
@@ -435,9 +504,15 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
         <div class="idle-box">
           <div style="font-size: 28px;">🎯</div>
           <div style="font-weight: 600; color: var(--fg);">No Error Analyzed</div>
-          <div style="font-size: 12px;">Highlight an error message or stack trace in the editor, right-click, and select:</div>
-          <div style="font-weight: 700; color: var(--accent); font-size: 11px; background: rgba(0,0,0,0.2); padding: 6px 10px; border-radius: 4px;">
-            BugScope AI: Analyse Error Impact
+          <div style="font-size: 12px;">Highlight an error in the editor or terminal, then press:</div>
+          <div style="font-weight: 700; color: var(--accent); font-size: 11px; background: rgba(0,0,0,0.2); padding: 6px 10px; border-radius: 4px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <span style="background: rgba(255,255,255,0.15); padding: 2px 6px; border-radius: 3px; font-family: monospace;">F4</span>
+            <span style="font-weight: 400; opacity: 0.8;">or Alt+Shift+B</span>
+          </div>
+          <div style="margin-top: 14px; border-top: 1px solid var(--card-border); padding-top: 10px; width: 100%;">
+            <button id="config-key-btn" style="width: 100%; font-size: 11px; padding: 6px 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--card-border); border-radius: 4px; color: var(--fg); cursor: pointer;">
+              🔐 Configure AI Key (OS Keychain)
+            </button>
           </div>
         </div>
       \`;
@@ -525,22 +600,39 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
 
       // Candidates
       const candidatesHtml = r.candidates.length > 0
-        ? r.candidates.map(c => \`
+        ? r.candidates.map(c => {
+            const tier = c.signals?.confidenceTier || (c.score >= 0.8 ? 'CRITICAL' : c.score >= 0.55 ? 'HIGH' : c.score >= 0.3 ? 'MEDIUM' : 'LOW');
+            const stackPct = Math.round((c.signals?.stackProximity || 0) * 100);
+            const depPct = Math.round((c.signals?.dependencyAdjacency || 0) * 100);
+            const symPct = Math.round((c.signals?.symbolMatch || 0) * 100);
+            const testPct = Math.round((c.signals?.testCorrelation || 0) * 100);
+            const synergyBonus = c.signals?.synergyBonus ? Math.round(c.signals.synergyBonus * 100) : 0;
+
+            return \`
             <div class="candidate-item">
               <div class="candidate-header">
                 <div style="display:flex; align-items:center; gap:6px;">
                   <span class="rank-pill">#\${c.rank}</span>
+                  <span class="confidence-badge confidence-\${tier.toLowerCase()}">\${tier}</span>
                   <a class="file-link" data-file="\${escapeHtml(c.fsPath)}" data-line="1" data-col="1">
                     \${escapeHtml(c.relativePath)}
                   </a>
                 </div>
                 <span class="score-meter">Score \${c.score}</span>
               </div>
+              <div class="signals-bar">
+                <span class="signal-tag" title="Stack Trace Proximity">Stack \${stackPct}%</span>
+                <span class="signal-tag" title="Dependency Adjacency & Centrality">Dep \${depPct}%</span>
+                <span class="signal-tag" title="Symbol Identifier Match">Symbol \${symPct}%</span>
+                <span class="signal-tag" title="Test Suite Coverage">Test \${testPct}%</span>
+                \${synergyBonus > 0 ? \`<span class="signal-tag synergy" title="Multi-Vector Compound Synergy">⚡ +\${synergyBonus}%</span>\` : ''}
+              </div>
               <ul class="reasons-list">
                 \${c.reasons.map(reason => \`<li>\${escapeHtml(reason)}</li>\`).join('')}
               </ul>
             </div>
-          \`).join('')
+          \`;
+          }).join('')
         : '<div style="font-size:11px; opacity:0.7;">No workspace modules linked directly to this error.</div>';
 
       // Tests
@@ -595,27 +687,43 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
         \`
         : '';
 
+      const isClean = r.candidates.length === 0 && (r.errorSummary.type === 'CleanFile' || r.errorSummary.type === 'NonErrorSelection' || r.errorSummary.type === 'None');
+
       app.innerHTML = \`
         <div class="header">
           <div class="header-title">🔍 BugScope Findings</div>
-          <span class="offline-tag">100% Local</span>
+          <span class="offline-tag">\${isClean ? 'Clean Scope' : '100% Local'}</span>
         </div>
 
-        <div class="card error-banner">
-          <div class="error-type">\${escapeHtml(r.errorSummary.type)}</div>
-          <div class="error-msg">\${escapeHtml(r.errorSummary.message)}</div>
-        </div>
+        \${isClean
+          ? \`
+          <div class="card clean-banner">
+            <div class="clean-title">
+              <span>✅</span>
+              <span>0 Errors Detected</span>
+            </div>
+            <div class="clean-msg">\${escapeHtml(r.errorSummary.message)}</div>
+          </div>
+          \`
+          : \`
+          <div class="card error-banner">
+            <div class="error-type">\${escapeHtml(r.errorSummary.type)}</div>
+            <div class="error-msg">\${escapeHtml(r.errorSummary.message)}</div>
+          </div>
+          \`
+        }
 
         \${primaryHtml}
 
         <div class="card">
           <div class="card-title">
             <span>Impact Blast Radius</span>
-            <span>\${r.candidates.length} Modules</span>
+            <span class="badge \${isClean ? 'badge-observed' : ''}">\${r.candidates.length} Modules</span>
           </div>
-          <div style="display:flex; flex-direction:column; gap:8px;">
-            \${candidatesHtml}
-          </div>
+          \${isClean
+            ? \`<div style="font-size:11px; color:var(--vscode-descriptionForeground); padding:2px 0;">Workspace code is clean. 0 error boundaries or ripple effects detected.</div>\`
+            : \`<div style="display:flex; flex-direction:column; gap:8px;">\${candidatesHtml}</div>\`
+          }
         </div>
 
         <div class="card">
@@ -655,6 +763,13 @@ export class ResultsViewProvider implements vscode.WebviewViewProvider {
       const clearBtn = e.target.closest('#clear-btn');
       if (clearBtn) {
         vscode.postMessage({ action: 'CLEAR' });
+        return;
+      }
+
+      const configKeyBtn = e.target.closest('#config-key-btn');
+      if (configKeyBtn) {
+        vscode.postMessage({ action: 'CONFIGURE_KEY' });
+        return;
       }
     });
 
